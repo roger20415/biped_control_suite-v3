@@ -51,3 +51,6 @@ class Config:
     FALL_DOWN_BASELINK_Z_THRESHOLD: float = 0.011 # in meters
 
     FOOT_LINK_X_SEMI_LENGTH: float = 0.002 # in meters
+
+    SS_SWING_FOOT_HEIGHT: float = 0.011 # in meters
+    SWING_TRAJECTORY_MID_HEIGHT: float = 0.0015 # in meters

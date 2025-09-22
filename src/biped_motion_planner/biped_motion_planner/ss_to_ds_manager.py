@@ -10,11 +10,10 @@ from .linear_algebra_utils import LinearAlgebraUtils
 
 STANCE_LEG_JOINT_ALPHA: float = 5.0  # in degrees
 LAMBDA_FOR_SWING_END: float = 0.5  # between 0 and 1. lambda>0.5 baselink closer to support point and further from swing end.
-SWING_TRAJECTORY_MID_HEIGHT: float = 0.0015 # in meters
 REQUIRED_P_W_KEYS: tuple[str, ...] = ("baselink", "l_foot", "r_foot")
 REQUIRED_Q_W_KEYS: tuple[str, ...] = ("baselink", "l_foot", "r_foot")
 
-class SSTODSManager:
+class SSToDSManager:
     def __init__(self):
         self._stance_side: LegSide = "undefined"
         self._swing_side: LegSide = "undefined"
@@ -37,6 +36,7 @@ class SSTODSManager:
         if side not in VALID_SUPPORT_SIDES:
             raise ValueError("Invalid support side.")
         self._support_side = side
+    # TODO add support side logic
 
     def build_stance_of_s(self) -> None:
         s = sp.symbols('s', real=True)
@@ -95,7 +95,7 @@ class SSTODSManager:
     def _build_swing_of_s(self, p_W_swing_start: NDArray[np.float64], p_S_swing_end: NDArray[np.float64]) -> NDArray[object]:
         p_S_swing_start = np.array([p_W_swing_start[0], p_W_swing_start[1], 0.0], dtype=np.float64)
         p_S_swing_mid = (p_S_swing_start + p_S_swing_end) / 2.0
-        p_W_swing_mid = np.array([p_S_swing_mid[0], p_S_swing_mid[1], SWING_TRAJECTORY_MID_HEIGHT], dtype=np.float64)
+        p_W_swing_mid = np.array([p_S_swing_mid[0], p_S_swing_mid[1], Config.SWING_TRAJECTORY_MID_HEIGHT], dtype=np.float64)
 
         s = sp.symbols('s', real=True)
         raw_swing_of_s = ((1-s)**2)*p_W_swing_start + 2*(1-s)*s*p_W_swing_mid + (s**2)*p_S_swing_end

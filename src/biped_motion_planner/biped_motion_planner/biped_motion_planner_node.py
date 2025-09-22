@@ -13,7 +13,7 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from std_msgs.msg import Float32, Float64MultiArray, String
 
 from .config import Config, LegSide, SupportSide, VALID_LEG_SIDES, VALID_SUPPORT_SIDES
-from .ss_to_ds_manager import SSTODSManager
+from .ss_to_ds_manager import SSToDSManager
 
 TIMER_PERIOD: float = 0.05 # in seconds
 INIT_TO_SS_DURATION: float = 5.0 # in seconds
@@ -37,7 +37,7 @@ class BipedMotionPlannerNode(Node):
     def __init__(self):
         super().__init__('biped_motion_planner')
         self._timer = self.create_timer(TIMER_PERIOD, self._on_timer)
-        self.ss_to_ds_manager = SSTODSManager()
+        self.ss_to_ds_manager = SSToDSManager()
         self.stance_side: LegSide = "right"
         self.swing_side: LegSide = "left"
         self.support_side: SupportSide = "right"
