@@ -8,6 +8,7 @@ from .config import Config, LegSide
 JOINT_NUMS:int = 5 # exclude back, sacrum
 VALID_LEG_SIDES: tuple[str, ...] = ("left", "right")
 
+
 class StanceLegControlNode(Node):
     def __init__(self):
         super().__init__('stance_leg_control_node')

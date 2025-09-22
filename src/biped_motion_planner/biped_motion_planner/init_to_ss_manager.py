@@ -1,37 +1,44 @@
-from typing import Mapping, Optional
+from typing import Optional
 
 import numpy as np
 import sympy as sp
-from geometry_msgs.msg import Quaternion, Vector3
+from geometry_msgs.msg import Vector3
 from numpy.typing import NDArray
 
-from .config import Config, SupportSide, VALID_SUPPORT_SIDES
+from .config import Config, LegSide, SupportSide, VALID_SUPPORT_SIDES, VALID_LEG_SIDES
 
 
 class InitToSSManager:
     def __init__(self):
         self._support_side: SupportSide = "undefined"
+        self._swing_side: LegSide = "undefined"
         self._swing_of_s: Optional[NDArray[object]] = None
+        self._swing_funcs = None
+        self._s = sp.symbols('s', real=True)
     
     def set_support_side(self, side: SupportSide) -> None:
         if side not in VALID_SUPPORT_SIDES:
             raise ValueError("Invalid support side.")
         self._support_side = side
+    
+    def set_swing_side(self, side: LegSide) -> None:
+        if side not in VALID_LEG_SIDES:
+            raise ValueError("Invalid leg side.")
+        self._swing_side = side
 
-    def build_swing_of_s(self, p_W: Mapping[str, Vector3], q_W: Mapping[str, Quaternion]) -> None:
-        if not self._if_side_defined():
-            raise ValueError("support side is undefined.")
-        self._swing_of_s = self._build_swing_of_s()
+    def build_swing_of_s(self, p_W: dict[str, Vector3]) -> None:
+        if self._swing_side == "left":
+            p_W_foot = p_W["l_foot"]
+        elif self._swing_side == "right":
+            p_W_foot = p_W["r_foot"]
+        self._swing_of_s = self._build_swing_of_s(p_W_foot)
+        self._swing_funcs = [sp.lambdify(self._s, e, 'numpy') for e in self._swing_of_s]
 
-    def calc_swing_position(self, s_value: float) -> NDArray[np.float64]:
-        if self._swing_of_s is None:
+    def calc_swing_position(self, s_value: float) -> np.ndarray:
+        if self._swing_funcs is None:
             raise ValueError("Swing trajectory is not yet built.")
-        if s_value < 0.0 or s_value > 1.0:
-            raise ValueError("s_value must be between 0 and 1.")
-        position = np.empty(3, dtype=np.float64)
-        for i in range(3):
-            position[i] = float(self._swing_of_s[i].evalf(subs={'s': s_value}))
-        return position
+        s_val = float(s_value)
+        return np.array([float(f(s_val)) for f in self._swing_funcs], dtype=np.float64)
 
     def clear_phase_state(self) -> None:
         self._support_side = "undefined"
@@ -40,11 +47,6 @@ class InitToSSManager:
     def _if_side_defined(self) -> bool:
         return self._support_side in VALID_SUPPORT_SIDES
 
-    def _build_swing_of_s(self) -> NDArray[object]:
-        s = sp.symbols('s', real=True)
-        swing_of_s = np.array([
-            sp.Integer(0), 
-            sp.Integer(0), 
-            sp.simplify(Config.SS_SWING_FOOT_HEIGHT * s)
-        ], dtype=object)
-        return swing_of_s
+    def _build_swing_of_s(self, p_W_foot: Vector3) -> NDArray[object]:
+        height = sp.Float(float(Config.SS_SWING_FOOT_HEIGHT))
+        return np.array([sp.Float(p_W_foot.x), sp.Float(p_W_foot.y), height * self._s], dtype=object)

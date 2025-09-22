@@ -5,13 +5,12 @@ import sympy as sp
 from geometry_msgs.msg import Quaternion, Vector3
 from numpy.typing import NDArray
 
-from .config import Config, LegSide, SupportSide, VALID_LEG_SIDES, VALID_SUPPORT_SIDES
+from .config import Config, LegSide, SupportSide, VALID_LEG_SIDES, VALID_SUPPORT_SIDES, REQUIRED_P_W_KEYS, REQUIRED_Q_W_KEYS
 from .linear_algebra_utils import LinearAlgebraUtils
 
 STANCE_LEG_JOINT_ALPHA: float = 5.0  # in degrees
 LAMBDA_FOR_SWING_END: float = 0.5  # between 0 and 1. lambda>0.5 baselink closer to support point and further from swing end.
-REQUIRED_P_W_KEYS: tuple[str, ...] = ("baselink", "l_foot", "r_foot")
-REQUIRED_Q_W_KEYS: tuple[str, ...] = ("baselink", "l_foot", "r_foot")
+
 
 class SSToDSManager:
     def __init__(self):

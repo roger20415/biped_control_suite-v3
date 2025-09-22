@@ -5,6 +5,8 @@ LegSide: TypeAlias = Literal["left", "right", "undefined"]
 SupportSide: TypeAlias = Literal["left", "right", "mid", "undefined"]
 VALID_LEG_SIDES: tuple[str, ...] = ("left", "right")
 VALID_SUPPORT_SIDES: tuple[str, ...] = ("left", "right", "mid")
+REQUIRED_P_W_KEYS: tuple[str, ...] = ("baselink", "l_foot", "r_foot")
+REQUIRED_Q_W_KEYS: tuple[str, ...] = ("baselink", "l_foot", "r_foot")
 
 class Config:
     # foot length (in meters)
@@ -52,5 +54,5 @@ class Config:
 
     FOOT_LINK_X_SEMI_LENGTH: float = 0.002 # in meters
 
-    SS_SWING_FOOT_HEIGHT: float = 0.011 # in meters
+    SS_SWING_FOOT_HEIGHT: float = 0.0011 # in meters
     SWING_TRAJECTORY_MID_HEIGHT: float = 0.0015 # in meters

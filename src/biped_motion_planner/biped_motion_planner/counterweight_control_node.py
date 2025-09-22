@@ -20,7 +20,7 @@ _COM_KEYS: tuple[str, ...] = (
     "l_foot", "r_foot",
 )
 SACRUM_MOVE_THRESHOLD: float = 0.0065/50 # in meters (left to right foot distance: 0.0065)
-SACRUM_MOVE_STEP: float = 0.018/200 # joint target command (sacrum joint limits: +-0.009)
+SACRUM_MOVE_STEP: float = 0.018/180 #0.018/200 # joint target command (sacrum joint limits: +-0.009)
 PUBLISH_PERIOD: float = 0.05 # in seconds
 VALID_SUPPORT_SIDES: tuple[str, ...] = ("left", "right", "mid")
 
