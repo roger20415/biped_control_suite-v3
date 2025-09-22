@@ -9,6 +9,7 @@ REQUIRED_P_W_KEYS: tuple[str, ...] = ("baselink", "l_foot", "r_foot")
 REQUIRED_Q_W_KEYS: tuple[str, ...] = ("baselink", "l_foot", "r_foot")
 
 class Config:
+    JOINT_NUMS: int = 5 # exclude back, sacrum
     # foot length (in meters)
     HIP_LEN: float = 0.0043 # hip to thigh joint
     THIGH_LEN: float = 0.006 # thigh to calf joint

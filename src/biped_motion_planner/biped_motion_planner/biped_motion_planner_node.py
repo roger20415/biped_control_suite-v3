@@ -12,9 +12,10 @@ from geometry_msgs.msg import Quaternion, Vector3
 from numpy.typing import NDArray
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
-from std_msgs.msg import Float32, Float64MultiArray, String
+from std_msgs.msg import Float64MultiArray, String
 
-from .config import LegSide, SupportSide, VALID_LEG_SIDES, VALID_SUPPORT_SIDES, REQUIRED_P_W_KEYS, REQUIRED_Q_W_KEYS
+from .config import Config, LegSide, SupportSide, VALID_LEG_SIDES, VALID_SUPPORT_SIDES, REQUIRED_P_W_KEYS, REQUIRED_Q_W_KEYS
+from .ds_to_ss_manager import DSToSSManager
 from .init_to_ss_manager import InitToSSManager
 from .ss_to_ds_manager import SSToDSManager
 
@@ -43,6 +44,7 @@ class BipedMotionPlannerNode(Node):
         self._timer = self.create_timer(TIMER_PERIOD, self._on_timer)
         self.init_to_ss_manager = InitToSSManager()
         self.ss_to_ds_manager = SSToDSManager()
+        self.ds_to_ss_manager = DSToSSManager()
         self.stance_side: LegSide = "right"
         self.swing_side: LegSide = "left"
         self.support_side: SupportSide = "right"
@@ -71,13 +73,13 @@ class BipedMotionPlannerNode(Node):
                 on_step=self._step_ds_to_ss
             ),
         }
-        self._next_stance_alpha: float = 0.0
+        self._next_stance_joint_pose: Optional[list[float]] = None
         self._next_swing_position: Optional[NDArray[np.float64]] = None
 
         self._p_W: dict[str, Optional[Vector3]] = {k: None for k in REQUIRED_P_W_KEYS}
         self._q_W: dict[str, Optional[Quaternion]] = {k: None for k in REQUIRED_Q_W_KEYS}
-        self._left_joint_target: Optional[NDArray[np.float64]] = None
-        self._right_joint_target: Optional[NDArray[np.float64]] = None
+        self._left_joint_targets: Optional[NDArray[np.float64]] = None
+        self._right_joint_targets: Optional[NDArray[np.float64]] = None
         qos_sensor = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             history=HistoryPolicy.KEEP_LAST,
@@ -119,16 +121,16 @@ class BipedMotionPlannerNode(Node):
             self._r_foot_quat_callback,
             qos_sensor
         )
-        self._left_joint_target_subscriber_ = self.create_subscription(
+        self._left_joint_targets_subscriber_ = self.create_subscription(
             Float64MultiArray,
             '/biped/left_joint_target',
-            self._left_joint_target_callback,
+            self._left_joint_targets_callback,
             qos_sensor
         )
-        self._right_joint_target_subscriber_ = self.create_subscription(
+        self._right_joint_targets_subscriber_ = self.create_subscription(
             Float64MultiArray,
             '/biped/right_joint_target',
-            self._right_joint_target_callback,
+            self._right_joint_targets_callback,
             qos_sensor
         )
         self._support_side_publisher_ = self.create_publisher(
@@ -146,11 +148,11 @@ class BipedMotionPlannerNode(Node):
             '/biped/swing_side',
             10
         )
-        self._stance_leg_alpha_publisher_ = self.create_publisher(
-            Float32,
-            '/biped/stance_leg_alpha',
+        self._stance_joint_targets_publisher_ = self.create_publisher(
+            Float64MultiArray,
+            '/biped/stance_joint_target',
             10
-        ) # leg_alpha in degrees
+        ) # joint angles in degrees
         self._swing_target_publisher_ = self.create_publisher(
             Vector3,
             '/biped/swing_target',
@@ -169,10 +171,10 @@ class BipedMotionPlannerNode(Node):
         self._q_W["l_foot"] = msg
     def _r_foot_quat_callback(self, msg: Quaternion) -> None:
         self._q_W["r_foot"] = msg
-    def _left_joint_target_callback(self, msg: Float64MultiArray) -> None:
-        self._left_joint_target = np.array(msg.data, dtype=np.float64)
-    def _right_joint_target_callback(self, msg: Float64MultiArray) -> None:
-        self._right_joint_target = np.array(msg.data, dtype=np.float64)
+    def _left_joint_targets_callback(self, msg: Float64MultiArray) -> None:
+        self._left_joint_targets = np.array(msg.data, dtype=np.float64)
+    def _right_joint_targets_callback(self, msg: Float64MultiArray) -> None:
+        self._right_joint_targets = np.array(msg.data, dtype=np.float64)
 
     def _pub_support_side(self) -> None:
         if self.support_side not in VALID_SUPPORT_SIDES:
@@ -198,10 +200,13 @@ class BipedMotionPlannerNode(Node):
         msg.data = self.swing_side
         self._swing_side_publisher_.publish(msg)
 
-    def _pub_stance_leg_alpha(self) -> None:
-        msg = Float32()
-        msg.data = self._next_stance_alpha
-        self._stance_leg_alpha_publisher_.publish(msg)
+    def _pub_stance_joint_targets(self) -> None:
+        if self._next_stance_joint_pose is None:
+            self.get_logger().warn("next_stance_joint_pose is None")
+            return
+        msg = Float64MultiArray()
+        msg.data = self._next_stance_joint_pose
+        self._stance_joint_targets_publisher_.publish(msg)
 
     def _pub_swing_target(self) -> None:
         if self._next_swing_position is None:
@@ -227,7 +232,7 @@ class BipedMotionPlannerNode(Node):
         self._pub_support_side()
         self._pub_stance_side()
         self._pub_swing_side()
-        self._pub_stance_leg_alpha()
+        self._pub_stance_joint_targets()
         self._pub_swing_target()
         self._total_step_idx += 1
         self._phase_step_idx += 1
@@ -272,7 +277,7 @@ class BipedMotionPlannerNode(Node):
     def _step_init_to_ss(self) -> Optional[Phase]:
         self._update_phase_timer()
         s_value = max(0.0, min(self._phase_duration_time / self._phase_time_budget[Phase.INIT_TO_SS], 1.0))
-        self._next_stance_alpha = 0.0
+        self._next_stance_joint_pose = [0.0]*Config.JOINT_NUMS
         self._next_swing_position = self.init_to_ss_manager.calc_swing_position(s_value)
         # TODO check if reached the target
         return None
@@ -290,16 +295,33 @@ class BipedMotionPlannerNode(Node):
     def _step_ss_to_ds(self) -> Optional[Phase]:
         self._update_phase_timer()
         s_value = max(0.0, min(self._phase_duration_time / self._phase_time_budget[Phase.SS_TO_DS], 1.0))
-        self._next_stance_alpha = self.ss_to_ds_manager.calc_stance_alpha(s_value)
+        self._next_stance_joint_pose = self.ss_to_ds_manager.calc_stance_joint_pose(s_value)
         self._next_swing_position = self.ss_to_ds_manager.calc_swing_position(s_value)
         # TODO check if reached the target
         return None
 
     def _enter_ds_to_ss(self) -> None:
-        sys.exit(0)
         self.get_logger().info('[ENTER] DS_TO_SS')
+        self.ds_to_ss_manager.clear_phase_state()
+        self.ds_to_ss_manager.set_stance_side(self.stance_side)
+        self.ds_to_ss_manager.set_swing_side(self.swing_side)
+        self.ds_to_ss_manager.set_support_side(self.support_side)
+        if self._left_joint_targets is None or self._right_joint_targets is None:
+            raise ValueError("Left or Right joint target is not yet received.")
+        if self.stance_side == "left":
+            self.ds_to_ss_manager.build_stance_of_s(self._left_joint_targets)
+        elif self.stance_side == "right":
+            self.ds_to_ss_manager.build_stance_of_s(self._right_joint_targets)
+        self.ds_to_ss_manager.build_swing_of_s(self._p_W, self._q_W)
+        self._start_phase_timer()
 
     def _step_ds_to_ss(self) -> Optional[Phase]:
+        sys.exit(0)
+        self._update_phase_timer()
+        s_value = max(0.0, min(self._phase_duration_time / self._phase_time_budget[Phase.DS_TO_SS], 1.0))
+        self._next_stance_target = self.ds_to_ss_manager.calc_stance_target(s_value)
+        #self._next_swing_position = self.ds_to_ss_manager.calc_swing_position(s_value)
+        # TODO check if reached the target
         return None
     
     def _start_phase_timer(self) -> None:

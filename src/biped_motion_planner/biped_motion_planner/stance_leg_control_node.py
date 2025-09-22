@@ -5,7 +5,6 @@ from rclpy.node import Node
 from std_msgs.msg import Float32, Float64MultiArray, String
 from .config import Config, LegSide
 
-JOINT_NUMS:int = 5 # exclude back, sacrum
 VALID_LEG_SIDES: tuple[str, ...] = ("left", "right")
 
 
@@ -20,12 +19,12 @@ class StanceLegControlNode(Node):
             self._stance_side_callback,
             10
         )
-        self._stance_leg_alpha_subscriber_ = self.create_subscription(
-            Float32,
-            '/biped/stance_leg_alpha',
-            self._stance_leg_alpha_callback,
+        self._stance_joint_target_subscriber_ = self.create_subscription(
+            Float64MultiArray,
+            '/biped/stance_joint_target',
+            self._stance_joint_target_callback,
             10
-        ) # leg_alpha in degrees
+        ) # joint angles in degrees
 
         self._left_joint_target_publisher_ = self.create_publisher(
             Float64MultiArray,
@@ -37,14 +36,14 @@ class StanceLegControlNode(Node):
             '/biped/right_joint_target',
             10
         )
-    
-    def _stance_leg_alpha_callback(self, msg: Float32) -> None:
-        # alpha in degrees
+
+    def _stance_joint_target_callback(self, msg: Float64MultiArray) -> None:
+        # joint angles in degrees
         if self._leg_side not in VALID_LEG_SIDES:
             self.get_logger().warn(f"Leg side is invalid: {self._leg_side}")
             return
         leg_side = self._leg_side
-        joint_pose = self._compose_joint_pose_for_publish(msg.data, leg_side)
+        joint_pose = msg.data
         # joint_pose in degrees
         joint_pose_rad = [np.deg2rad(angle) for angle in joint_pose]  # Convert degrees to radians
         self._pub_joint_pos(joint_pose_rad, leg_side)
@@ -67,36 +66,6 @@ class StanceLegControlNode(Node):
         else:
             self.get_logger().error(f"Invalid leg side: {leg_side}. Cannot publish joint targets.")
 
-    def _compose_joint_pose_for_publish(self, leg_alpha: float, leg_side: str) -> list[float]:
-        # leg_alpha in degrees
-        if leg_alpha > Config.THIGH_MAX_DEG or leg_alpha < Config.THIGH_MIN_DEG:
-            self.get_logger().warn(f"Leg alpha {leg_alpha} out of bounds. Clamping to limits.")
-            leg_alpha = np.clip(leg_alpha, Config.THIGH_MIN_DEG, Config.THIGH_MAX_DEG)
-        if leg_side == "left":
-            joint_pose: list[float] = [
-                0.0, # hip
-                -leg_alpha, # thigh
-                0.0, # calf
-                -leg_alpha, # ankle
-                0.0 # foot
-            ]
-
-        elif leg_side == "right":
-            joint_pose: list[float] = [
-                0.0, # hip
-                leg_alpha, # thigh
-                0.0, # calf
-                leg_alpha, # ankle
-                0.0 # foot
-            ]
-        else:
-            self.get_logger().error(f"Invalid leg side: {leg_side}. Cannot compose joint pose.")
-            return [0.0]*JOINT_NUMS
-        
-        if len(joint_pose) != JOINT_NUMS:
-            raise ValueError("Invalid swing leg joint pose length.")
-        return joint_pose
-    
 
 def main(args=None):
     rclpy.init(args=args)

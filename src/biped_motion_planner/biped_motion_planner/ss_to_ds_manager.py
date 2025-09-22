@@ -9,8 +9,7 @@ from .config import Config, LegSide, SupportSide, VALID_LEG_SIDES, VALID_SUPPORT
 from .linear_algebra_utils import LinearAlgebraUtils
 
 STANCE_LEG_JOINT_ALPHA: float = 10.0  # in degrees
-LAMBDA_FOR_SWING_END: float = 0.6  # between 0 and 1. lambda>0.5 baselink closer to swing end and further from suppport point.
-
+LAMBDA_FOR_SWING_END: float = 0.5  # between 0 and 1. lambda>0.5 baselink closer to swing end and further from suppport point.
 
 class SSToDSManager:
     def __init__(self):
@@ -58,12 +57,13 @@ class SSToDSManager:
         self._swing_of_s = swing_of_s
         self._swing_funcs = [sp.lambdify(self._s, expr, 'numpy') for expr in swing_of_s]
 
-    def calc_stance_alpha(self, s_value: float) -> float:
+    def calc_stance_joint_pose(self, s_value: float) -> list[float]:
         if self._stance_of_s is None:
             raise ValueError("Stance trajectory is not yet built.")
         if s_value < 0.0 or s_value > 1.0:
             raise ValueError("s_value must be between 0 and 1.")
-        return float(self._stance_func(s_value))
+        stance_alpha = float(self._stance_func(s_value))
+        return self._compose_stance_joint_pose(stance_alpha)
     
     def calc_swing_position(self, s_value: float) -> NDArray[np.float64]:
         if self._swing_of_s is None:
@@ -165,6 +165,36 @@ class SSToDSManager:
         else:
             raise ValueError("Swing side is undefined.")
         return p_W_swing_start
+    
+    def _compose_stance_joint_pose(self, leg_alpha: float) -> list[float]:
+        # leg_alpha in degrees
+        if leg_alpha > Config.THIGH_MAX_DEG or leg_alpha < Config.THIGH_MIN_DEG:
+            self.get_logger().warn(f"Leg alpha {leg_alpha} out of bounds. Clamping to limits.")
+            leg_alpha = np.clip(leg_alpha, Config.THIGH_MIN_DEG, Config.THIGH_MAX_DEG)
+        if self._stance_side == "left":
+            joint_pose: list[float] = [
+                0.0, # hip
+                -leg_alpha, # thigh
+                0.0, # calf
+                -leg_alpha, # ankle
+                0.0 # foot
+            ]
+
+        elif self._stance_side == "right":
+            joint_pose: list[float] = [
+                0.0, # hip
+                leg_alpha, # thigh
+                0.0, # calf
+                leg_alpha, # ankle
+                0.0 # foot
+            ]
+        else:
+            self.get_logger().error(f"Invalid leg side: {self._stance_side}. Cannot compose joint pose.")
+            return [0.0]*Config.JOINT_NUMS
+        
+        if len(joint_pose) != Config.JOINT_NUMS:
+            raise ValueError("Invalid swing leg joint pose length.")
+        return joint_pose
     
     def _validate_parameters(self) -> None:
         if STANCE_LEG_JOINT_ALPHA <= 0.0 or STANCE_LEG_JOINT_ALPHA >= 90.0:

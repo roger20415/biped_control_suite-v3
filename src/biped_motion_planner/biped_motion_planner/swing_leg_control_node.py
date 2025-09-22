@@ -8,7 +8,6 @@ from typing import Optional
 from .config import Config, LegSide
 from .joint_targets_calculator import JointTargetsCalculator
 
-JOINT_NUMS:int = 5 # exclude back, sacrum
 REQUIRED_P_W_KEYS: tuple[str] = ("baselink", "hip", "foot", "target")
 REQUIRED_P_W_RAW_KEYS: tuple[str] = ("l_hip", "l_foot", "r_hip", "r_foot")
 VALID_LEG_SIDES: tuple[str, ...] = ("left", "right")
@@ -149,7 +148,7 @@ class SwingLegControlNode(Node):
             joint_targets['ankle'],
             joint_targets['foot']
         ]
-        if len(joint_pose) != JOINT_NUMS:
+        if len(joint_pose) != Config.JOINT_NUMS:
             raise ValueError("Invalid swing leg joint pose length.")
         return joint_pose
     
