@@ -8,11 +8,8 @@ from numpy.typing import NDArray
 from .config import Config, LegSide, SupportSide, VALID_LEG_SIDES, VALID_SUPPORT_SIDES, REQUIRED_P_W_KEYS, REQUIRED_Q_W_KEYS
 from .linear_algebra_utils import LinearAlgebraUtils
 
-STANCE_LEG_JOINT_ALPHA: float = 10.0  # in degrees
-LAMBDA_FOR_SWING_END: float = 0.6  # between 0 and 1. lambda>0.5 baselink closer to swing end and further from suppport point.
 
-
-class SSToDSManager:
+class DSToSSManager:
     def __init__(self):
         self._s = sp.symbols('s', real=True)
         self._stance_side: LegSide = "undefined"
@@ -22,7 +19,6 @@ class SSToDSManager:
         self._stance_func = None
         self._swing_of_s: Optional[NDArray[object]] = None
         self._swing_func = None
-        self._validate_parameters()
 
     def set_stance_side(self, side: LegSide) -> None:
         if side not in VALID_LEG_SIDES:
@@ -40,8 +36,10 @@ class SSToDSManager:
         self._support_side = side
     # TODO add support side logic
 
-    def build_stance_of_s(self) -> None:
-        self._stance_of_s = sp.simplify(sp.Float(float(STANCE_LEG_JOINT_ALPHA)) * (self._s))
+    def build_stance_of_s(self, current_joint_target: NDArray[np.float64]) -> None:
+        curr = np.asarray(current_joint_target, dtype=float).reshape(-1)
+        M = sp.Matrix(curr)
+        self._stance_of_s = (1 - self._s) * M
         self._stance_func = sp.lambdify(self._s, self._stance_of_s, 'numpy')
 
     def build_swing_of_s(self, p_W: Mapping[str, Vector3], q_W: Mapping[str, Quaternion]) -> None:
@@ -58,12 +56,12 @@ class SSToDSManager:
         self._swing_of_s = swing_of_s
         self._swing_funcs = [sp.lambdify(self._s, expr, 'numpy') for expr in swing_of_s]
 
-    def calc_stance_alpha(self, s_value: float) -> float:
-        if self._stance_of_s is None:
+    def calc_stance_target(self, s_value: float) -> np.ndarray:
+        if self._stance_func is None:
             raise ValueError("Stance trajectory is not yet built.")
-        if s_value < 0.0 or s_value > 1.0:
-            raise ValueError("s_value must be between 0 and 1.")
-        return float(self._stance_func(s_value))
+        s_value = float(np.clip(s_value, 0.0, 1.0))
+        next_joint_target = np.asarray(self._stance_func(s_value), dtype=np.float64).reshape(-1)
+        return next_joint_target
     
     def calc_swing_position(self, s_value: float) -> NDArray[np.float64]:
         if self._swing_of_s is None:
@@ -165,9 +163,3 @@ class SSToDSManager:
         else:
             raise ValueError("Swing side is undefined.")
         return p_W_swing_start
-    
-    def _validate_parameters(self) -> None:
-        if STANCE_LEG_JOINT_ALPHA <= 0.0 or STANCE_LEG_JOINT_ALPHA >= 90.0:
-            raise ValueError("STANCE_LEG_JOINT_ALPHA must be between 0 and 90 degrees.")
-        if LAMBDA_FOR_SWING_END <= 0.0 or LAMBDA_FOR_SWING_END >= 1.0:
-            raise ValueError("LAMBDA_FOR_SWING_END must be between 0 and 1.")
