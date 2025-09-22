@@ -42,10 +42,12 @@ class InitToSSManager:
 
     def clear_phase_state(self) -> None:
         self._support_side = "undefined"
+        self._swing_side = "undefined"
         self._swing_of_s = None
+        self._swing_funcs = None
     
     def _if_side_defined(self) -> bool:
-        return self._support_side in VALID_SUPPORT_SIDES
+        return self._support_side in VALID_SUPPORT_SIDES and self._swing_side in VALID_LEG_SIDES
 
     def _build_swing_of_s(self, p_W_foot: Vector3) -> NDArray[object]:
         height = sp.Float(float(Config.SS_SWING_FOOT_HEIGHT))

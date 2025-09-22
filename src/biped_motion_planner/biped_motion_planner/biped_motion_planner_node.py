@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import time
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -275,6 +276,7 @@ class BipedMotionPlannerNode(Node):
         return None
 
     def _enter_ds_to_ss(self) -> None:
+        sys.exit(0)
         self.get_logger().info('[ENTER] DS_TO_SS')
 
     def _step_ds_to_ss(self) -> Optional[Phase]:

@@ -8,17 +8,20 @@ from numpy.typing import NDArray
 from .config import Config, LegSide, SupportSide, VALID_LEG_SIDES, VALID_SUPPORT_SIDES, REQUIRED_P_W_KEYS, REQUIRED_Q_W_KEYS
 from .linear_algebra_utils import LinearAlgebraUtils
 
-STANCE_LEG_JOINT_ALPHA: float = 5.0  # in degrees
+STANCE_LEG_JOINT_ALPHA: float = 10.0  # in degrees
 LAMBDA_FOR_SWING_END: float = 0.5  # between 0 and 1. lambda>0.5 baselink closer to support point and further from swing end.
 
 
 class SSToDSManager:
     def __init__(self):
+        self._s = sp.symbols('s', real=True)
         self._stance_side: LegSide = "undefined"
         self._swing_side: LegSide = "undefined"
         self._support_side: SupportSide = "undefined"
         self._stance_of_s: Optional[sp.Expr] = None
+        self._stance_func = None
         self._swing_of_s: Optional[NDArray[object]] = None
+        self._swing_func = None
         self._validate_parameters()
 
     def set_stance_side(self, side: LegSide) -> None:
@@ -38,9 +41,8 @@ class SSToDSManager:
     # TODO add support side logic
 
     def build_stance_of_s(self) -> None:
-        s = sp.symbols('s', real=True)
-        stance_of_s = STANCE_LEG_JOINT_ALPHA * (1 - s)
-        self._stance_of_s = sp.simplify(stance_of_s)
+        self._stance_of_s = sp.simplify(sp.Float(float(STANCE_LEG_JOINT_ALPHA)) * (self._s))
+        self._stance_func = sp.lambdify(self._s, self._stance_of_s, 'numpy')
 
     def build_swing_of_s(self, p_W: Mapping[str, Vector3], q_W: Mapping[str, Quaternion]) -> None:
         if not self._if_subscribe_data_ready(p_W, q_W):
@@ -54,30 +56,30 @@ class SSToDSManager:
         p_W_swing_start: NDArray[np.float64] = self._calc_p_W_swing_start(p_W, q_W)
         swing_of_s = self._build_swing_of_s(p_W_swing_start, p_S_swing_end)
         self._swing_of_s = swing_of_s
+        self._swing_funcs = [sp.lambdify(self._s, expr, 'numpy') for expr in swing_of_s]
 
     def calc_stance_alpha(self, s_value: float) -> float:
         if self._stance_of_s is None:
             raise ValueError("Stance trajectory is not yet built.")
         if s_value < 0.0 or s_value > 1.0:
             raise ValueError("s_value must be between 0 and 1.")
-        return float(self._stance_of_s.evalf(subs={'s': s_value}))
+        return float(self._stance_func(s_value))
     
     def calc_swing_position(self, s_value: float) -> NDArray[np.float64]:
         if self._swing_of_s is None:
             raise ValueError("Swing trajectory is not yet built.")
-        if s_value < 0.0 or s_value > 1.0:
+        if not (0.0 <= s_value <= 1.0):
             raise ValueError("s_value must be between 0 and 1.")
-        position = np.empty(3, dtype=np.float64)
-        for i in range(3):
-            position[i] = float(self._swing_of_s[i].evalf(subs={'s': s_value}))
-        return position
+        return np.array([float(f(s_value)) for f in self._swing_funcs], dtype=np.float64)
 
     def clear_phase_state(self) -> None:
         self._stance_side = "undefined"
         self._swing_side = "undefined"
         self._support_side = "undefined"
         self._stance_of_s = None
+        self._stance_func = None
         self._swing_of_s = None
+        self._swing_func = None
 
     def _if_subscribe_data_ready(self, p_W: Mapping[str, Vector3], q_W: Mapping[str, Quaternion]) -> bool:
         for key in REQUIRED_P_W_KEYS:
@@ -96,8 +98,7 @@ class SSToDSManager:
         p_S_swing_mid = (p_S_swing_start + p_S_swing_end) / 2.0
         p_W_swing_mid = np.array([p_S_swing_mid[0], p_S_swing_mid[1], Config.SWING_TRAJECTORY_MID_HEIGHT], dtype=np.float64)
 
-        s = sp.symbols('s', real=True)
-        raw_swing_of_s = ((1-s)**2)*p_W_swing_start + 2*(1-s)*s*p_W_swing_mid + (s**2)*p_S_swing_end
+        raw_swing_of_s = ((1-self._s)**2)*p_W_swing_start + 2*(1-self._s)*self._s*p_W_swing_mid + (self._s**2)*p_S_swing_end
         swing_of_s = np.empty(3, dtype=object)
         for i in range(3):
             swing_of_s[i] = sp.simplify(raw_swing_of_s[i])
