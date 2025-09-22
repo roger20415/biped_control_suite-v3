@@ -4,8 +4,13 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Callable, Dict, Optional
 
+import numpy as np
 import rclpy
+from numpy.typing import NDArray
 from rclpy.node import Node
+
+from .config import Config, LegSide, SupportSide, VALID_LEG_SIDES, VALID_SUPPORT_SIDES
+from .ss_to_ds_manager import SSTODSManager
 
 TIMER_PERIOD: float = 0.05 # in seconds
 INIT_TO_SS_DURATION: float = 5.0 # in seconds
@@ -29,7 +34,11 @@ class BipedMotionPlannerNode(Node):
     def __init__(self):
         super().__init__('biped_motion_planner')
         self._timer = self.create_timer(TIMER_PERIOD, self._on_timer)
-        self._prev_time = self.get_clock().now()
+        self.ss_to_ds_manager = SSTODSManager()
+        self.stance_side: LegSide = "undefined"
+        self.swing_side: LegSide = "undefined"
+        self.support_side: SupportSide = "undefined"
+        self._phase_start_time: float = 0.0
 
         self._current_phase: Phase = Phase.INIT_TO_SS
         self._total_step_idx: int = 0
@@ -55,6 +64,9 @@ class BipedMotionPlannerNode(Node):
                 on_step=self._step_ds_to_ss
             ),
         }
+
+        self._next_stance_alpha: float = 0.0
+        self._next_swing_position: Optional[NDArray[np.float64]] = None
 
         self._handlers[self._current_phase].on_enter(self)
 
@@ -96,8 +108,21 @@ class BipedMotionPlannerNode(Node):
 
     def _enter_ss_to_ds(self) -> None:
         self.get_logger().info('[ENTER] SS_TO_DS')
+        self._switch_stance_and_swing()
+        self.ss_to_ds_manager.clear_phase_state()
+        self.ss_to_ds_manager.set_stance_side(self.stance_side)
+        self.ss_to_ds_manager.set_swing_side(self.swing_side)
+        self.ss_to_ds_manager.set_support_side(self.support_side)
+        self.ss_to_ds_manager.build_stance_of_s()
+        self.ss_to_ds_manager.build_swing_of_s(self._p_W, self._q_W)
+        self._start_phase_timer()
 
     def _step_ss_to_ds(self) -> Optional[Phase]:
+        s_value = max(0.0, min(self._phase_duration_time / self._phase_time_budget[Phase.SS_TO_DS], 1.0))
+        self._next_stance_alpha = self.ss_to_ds_manager.calc_stance_alpha(s_value)
+        self._next_swing_position = self.ss_to_ds_manager.calc_swing_position(s_value)
+        # TODO publish
+        # TODO check if reached the target
         return None
 
     def _enter_ds_to_ss(self) -> None:
@@ -105,6 +130,17 @@ class BipedMotionPlannerNode(Node):
 
     def _step_ds_to_ss(self) -> Optional[Phase]:
         return None
+    
+    def _start_phase_timer(self) -> None:
+        self._phase_start_time = self.get_clock().now().nanoseconds * 1e-9
+        self._phase_duration_time = 0.0
+
+    def _update_phase_timer(self) -> None:
+        now = self.get_clock().now()
+        self._phase_duration_time = now.nanoseconds * 1e-9 - self._phase_start_time
+    
+    def _switch_stance_and_swing(self) -> None:
+        self.stance_side, self.swing_side = self.swing_side, self.stance_side
 
 def main(args=None):
     rclpy.init(args=args)

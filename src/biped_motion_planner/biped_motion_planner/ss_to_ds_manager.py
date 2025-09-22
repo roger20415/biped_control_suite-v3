@@ -1,4 +1,4 @@
-from typing import Mapping
+from typing import Mapping, Optional
 
 import numpy as np
 import sympy as sp
@@ -19,13 +19,9 @@ class SSTODSManager:
         self._stance_side: LegSide = "undefined"
         self._swing_side: LegSide = "undefined"
         self._support_side: SupportSide = "undefined"
-        self.validate_parameters()
-
-    def validate_parameters(self) -> None:
-        if STANCE_LEG_JOINT_ALPHA <= 0.0 or STANCE_LEG_JOINT_ALPHA >= 90.0:
-            raise ValueError("STANCE_LEG_JOINT_ALPHA must be between 0 and 90 degrees.")
-        if LAMBDA_FOR_SWING_END <= 0.0 or LAMBDA_FOR_SWING_END >= 1.0:
-            raise ValueError("LAMBDA_FOR_SWING_END must be between 0 and 1.")
+        self._stance_of_s: Optional[sp.Expr] = None
+        self._swing_of_s: Optional[NDArray[object]] = None
+        self._validate_parameters()
 
     def set_stance_side(self, side: LegSide) -> None:
         if side not in VALID_LEG_SIDES:
@@ -42,12 +38,12 @@ class SSTODSManager:
             raise ValueError("Invalid support side.")
         self._support_side = side
 
-    def build_stance_of_s(self) -> sp.Expr:
+    def build_stance_of_s(self) -> None:
         s = sp.symbols('s', real=True)
         stance_of_s = STANCE_LEG_JOINT_ALPHA * (1 - s)
-        return sp.simplify(stance_of_s)
+        self._stance_of_s = sp.simplify(stance_of_s)
 
-    def build_swing_of_s(self, p_W: Mapping[str, Vector3], q_W: Mapping[str, Quaternion]) -> NDArray[object]:
+    def build_swing_of_s(self, p_W: Mapping[str, Vector3], q_W: Mapping[str, Quaternion]) -> None:
         if not self._if_subscribe_data_ready(p_W, q_W):
             raise ValueError("Position or orientation data is not yet received.")
         if not self._if_side_defined():
@@ -58,7 +54,31 @@ class SSTODSManager:
         p_S_swing_end: NDArray[np.float64] = self._calc_p_S_swing_end(p_S_baselink_target, p_S_stance)
         p_W_swing_start: NDArray[np.float64] = self._calc_p_W_swing_start(p_W, q_W)
         swing_of_s = self._build_swing_of_s(p_W_swing_start, p_S_swing_end)
-        return swing_of_s
+        self._swing_of_s = swing_of_s
+
+    def calc_stance_alpha(self, s_value: float) -> float:
+        if self._stance_of_s is None:
+            raise ValueError("Stance trajectory is not yet built.")
+        if s_value < 0.0 or s_value > 1.0:
+            raise ValueError("s_value must be between 0 and 1.")
+        return float(self._stance_of_s.evalf(subs={'s': s_value}))
+    
+    def calc_swing_position(self, s_value: float) -> NDArray[np.float64]:
+        if self._swing_of_s is None:
+            raise ValueError("Swing trajectory is not yet built.")
+        if s_value < 0.0 or s_value > 1.0:
+            raise ValueError("s_value must be between 0 and 1.")
+        position = np.empty(3, dtype=np.float64)
+        for i in range(3):
+            position[i] = float(self._swing_of_s[i].evalf(subs={'s': s_value}))
+        return position
+
+    def clear_phase_state(self) -> None:
+        self._stance_side = "undefined"
+        self._swing_side = "undefined"
+        self._support_side = "undefined"
+        self._stance_of_s = None
+        self._swing_of_s = None
 
     def _if_subscribe_data_ready(self, p_W: Mapping[str, Vector3], q_W: Mapping[str, Quaternion]) -> bool:
         for key in REQUIRED_P_W_KEYS:
@@ -145,3 +165,9 @@ class SSTODSManager:
         else:
             raise ValueError("Swing side is undefined.")
         return p_W_swing_start
+    
+    def _validate_parameters(self) -> None:
+        if STANCE_LEG_JOINT_ALPHA <= 0.0 or STANCE_LEG_JOINT_ALPHA >= 90.0:
+            raise ValueError("STANCE_LEG_JOINT_ALPHA must be between 0 and 90 degrees.")
+        if LAMBDA_FOR_SWING_END <= 0.0 or LAMBDA_FOR_SWING_END >= 1.0:
+            raise ValueError("LAMBDA_FOR_SWING_END must be between 0 and 1.")
