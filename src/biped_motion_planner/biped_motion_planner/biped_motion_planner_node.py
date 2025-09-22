@@ -12,7 +12,7 @@ from geometry_msgs.msg import Quaternion, Vector3
 from numpy.typing import NDArray
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
-from std_msgs.msg import Float32, String
+from std_msgs.msg import Float32, Float64MultiArray, String
 
 from .config import LegSide, SupportSide, VALID_LEG_SIDES, VALID_SUPPORT_SIDES, REQUIRED_P_W_KEYS, REQUIRED_Q_W_KEYS
 from .init_to_ss_manager import InitToSSManager
@@ -76,6 +76,8 @@ class BipedMotionPlannerNode(Node):
 
         self._p_W: dict[str, Optional[Vector3]] = {k: None for k in REQUIRED_P_W_KEYS}
         self._q_W: dict[str, Optional[Quaternion]] = {k: None for k in REQUIRED_Q_W_KEYS}
+        self._left_joint_target: Optional[NDArray[np.float64]] = None
+        self._right_joint_target: Optional[NDArray[np.float64]] = None
         qos_sensor = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             history=HistoryPolicy.KEEP_LAST,
@@ -117,6 +119,18 @@ class BipedMotionPlannerNode(Node):
             self._r_foot_quat_callback,
             qos_sensor
         )
+        self._left_joint_target_subscriber_ = self.create_subscription(
+            Float64MultiArray,
+            '/biped/left_joint_target',
+            self._left_joint_target_callback,
+            qos_sensor
+        )
+        self._right_joint_target_subscriber_ = self.create_subscription(
+            Float64MultiArray,
+            '/biped/right_joint_target',
+            self._right_joint_target_callback,
+            qos_sensor
+        )
         self._support_side_publisher_ = self.create_publisher(
             String,
             '/biped/support_side',
@@ -155,6 +169,10 @@ class BipedMotionPlannerNode(Node):
         self._q_W["l_foot"] = msg
     def _r_foot_quat_callback(self, msg: Quaternion) -> None:
         self._q_W["r_foot"] = msg
+    def _left_joint_target_callback(self, msg: Float64MultiArray) -> None:
+        self._left_joint_target = np.array(msg.data, dtype=np.float64)
+    def _right_joint_target_callback(self, msg: Float64MultiArray) -> None:
+        self._right_joint_target = np.array(msg.data, dtype=np.float64)
 
     def _pub_support_side(self) -> None:
         if self.support_side not in VALID_SUPPORT_SIDES:
