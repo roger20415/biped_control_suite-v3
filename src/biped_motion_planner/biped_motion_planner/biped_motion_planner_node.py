@@ -235,6 +235,8 @@ class BipedMotionPlannerNode(Node):
             f'Transition: {self._current_phase.name} -> {next_phase.name} '
             f'(total_step={self._total_step_idx})'
         )
+        if (self._current_phase, next_phase) == (Phase.SS_TO_DS, Phase.DS_TO_SS):
+            self._switch_side()
         self._current_phase = next_phase
         self._phase_step_idx = 0
         self._pub_support_side()
@@ -290,7 +292,7 @@ class BipedMotionPlannerNode(Node):
         now = self.get_clock().now()
         self._phase_duration_time = now.nanoseconds * 1e-9 - self._phase_start_time
     
-    def _switch_stance_and_swing(self) -> None:
+    def _switch_side(self) -> None:
         self.stance_side, self.swing_side = self.swing_side, self.stance_side
         # TODO support side switch logic
         self.support_side = self.stance_side
