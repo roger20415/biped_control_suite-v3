@@ -10,6 +10,7 @@ from geometry_msgs.msg import Quaternion, Vector3
 from numpy.typing import NDArray
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+from std_msgs.msg import Float32, Float64MultiArray, String
 
 from .config import Config, LegSide, SupportSide, VALID_LEG_SIDES, VALID_SUPPORT_SIDES
 from .ss_to_ds_manager import SSTODSManager
@@ -37,9 +38,9 @@ class BipedMotionPlannerNode(Node):
         super().__init__('biped_motion_planner')
         self._timer = self.create_timer(TIMER_PERIOD, self._on_timer)
         self.ss_to_ds_manager = SSTODSManager()
-        self.stance_side: LegSide = "undefined"
-        self.swing_side: LegSide = "undefined"
-        self.support_side: SupportSide = "undefined"
+        self.stance_side: LegSide = "right"
+        self.swing_side: LegSide = "left"
+        self.support_side: SupportSide = "right"
         self._phase_start_time: float = 0.0
 
         self._current_phase: Phase = Phase.INIT_TO_SS
@@ -111,6 +112,34 @@ class BipedMotionPlannerNode(Node):
             self._r_foot_quat_callback,
             qos_sensor
         )
+        self._support_side_publisher_ = self.create_publisher(
+            String,
+            '/biped/support_side',
+            10
+        )
+        self._stance_side_publisher_ = self.create_publisher(
+            String,
+            '/biped/stance_side',
+            10
+        )
+        self._swing_side_publisher_ = self.create_publisher(
+            String,
+            '/biped/swing_side',
+            10
+        )
+        self._stance_leg_alpha_publisher_ = self.create_publisher(
+            Float32,
+            '/biped/stance_leg_alpha',
+            10
+        ) # leg_alpha in degrees
+        self._swing_target_publisher_ = self.create_publisher(
+            Vector3,
+            '/biped/swing_target',
+            10
+        )
+
+        self._handlers[self._current_phase].on_enter(self)
+
     def _baselink_translate_callback(self, msg: Vector3) -> None:
         self._p_W["baselink"] = msg
     def _l_foot_translate_callback(self, msg: Vector3) -> None:
@@ -124,10 +153,52 @@ class BipedMotionPlannerNode(Node):
     def _r_foot_quat_callback(self, msg: Quaternion) -> None:
         self._q_W["r_foot"] = msg
 
-        self._handlers[self._current_phase].on_enter(self)
+    def _pub_support_side(self) -> None:
+        if self.support_side not in VALID_SUPPORT_SIDES:
+            self.get_logger().warn(f"Support side is invalid: {self.support_side}")
+            return
+        msg = String()
+        msg.data = self.support_side
+        self._support_side_publisher_.publish(msg)
+
+    def _pub_stance_side(self) -> None:
+        if self.stance_side not in VALID_LEG_SIDES:
+            self.get_logger().warn(f"Stance side is invalid: {self.stance_side}")
+            return
+        msg = String()
+        msg.data = self.stance_side
+        self._stance_side_publisher_.publish(msg)
+    
+    def _pub_swing_side(self) -> None:
+            if self.swing_side not in VALID_LEG_SIDES:
+                self.get_logger().warn(f"Swing side is invalid: {self.swing_side}")
+                return
+            msg = String()
+            msg.data = self.swing_side
+            self._swing_side_publisher_.publish(msg)
+
+    def _pub_stance_leg_alpha(self) -> None:
+        msg = Float32()
+        msg.data = self._next_stance_alpha
+        self._stance_leg_alpha_publisher_.publish(msg)
+
+    def _pub_swing_target(self) -> None:
+        if self._next_swing_position is None:
+            self.get_logger().warn("Next swing position is not set.")
+            return
+        msg = Vector3()
+        msg.x = float(self._next_swing_position[0])
+        msg.y = float(self._next_swing_position[1])
+        msg.z = float(self._next_swing_position[2])
+        self._swing_target_publisher_.publish(msg)
 
     def _on_timer(self) -> None:
         next_phase = self._handlers[self._current_phase].on_step(self)
+        self._pub_support_side()
+        self._pub_stance_side()
+        self._pub_swing_side()
+        self._pub_stance_leg_alpha()
+        self._pub_swing_target()
         self._total_step_idx += 1
         self._phase_step_idx += 1
         if next_phase is not None or self._phase_budget_reached():
@@ -173,10 +244,10 @@ class BipedMotionPlannerNode(Node):
         self._start_phase_timer()
 
     def _step_ss_to_ds(self) -> Optional[Phase]:
+        self._update_phase_timer()
         s_value = max(0.0, min(self._phase_duration_time / self._phase_time_budget[Phase.SS_TO_DS], 1.0))
         self._next_stance_alpha = self.ss_to_ds_manager.calc_stance_alpha(s_value)
         self._next_swing_position = self.ss_to_ds_manager.calc_swing_position(s_value)
-        # TODO publish
         # TODO check if reached the target
         return None
 
@@ -196,6 +267,8 @@ class BipedMotionPlannerNode(Node):
     
     def _switch_stance_and_swing(self) -> None:
         self.stance_side, self.swing_side = self.swing_side, self.stance_side
+        # TODO support side switch logic
+        self.support_side = self.stance_side
 
 def main(args=None):
     rclpy.init(args=args)
