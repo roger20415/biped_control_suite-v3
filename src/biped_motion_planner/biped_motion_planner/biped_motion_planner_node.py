@@ -6,8 +6,10 @@ from typing import Callable, Dict, Optional
 
 import numpy as np
 import rclpy
+from geometry_msgs.msg import Quaternion, Vector3
 from numpy.typing import NDArray
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 
 from .config import Config, LegSide, SupportSide, VALID_LEG_SIDES, VALID_SUPPORT_SIDES
 from .ss_to_ds_manager import SSTODSManager
@@ -49,7 +51,6 @@ class BipedMotionPlannerNode(Node):
             Phase.SS_TO_DS: SS_TO_DS_DURATION,
             Phase.DS_TO_SS: DS_TO_SS_DURATION,
         }
-
         self._handlers: Dict[Phase, PhaseHandlers] = {
             Phase.INIT_TO_SS: PhaseHandlers(
                 on_enter=self._enter_init_to_ss,
@@ -64,9 +65,64 @@ class BipedMotionPlannerNode(Node):
                 on_step=self._step_ds_to_ss
             ),
         }
-
         self._next_stance_alpha: float = 0.0
         self._next_swing_position: Optional[NDArray[np.float64]] = None
+
+        self._p_W: dict[str, Optional[Vector3]] = None
+        self._q_W: dict[str, Optional[Quaternion]] = None
+        qos_sensor = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=10
+        )
+        self._baselink_translate_subscriber_ = self.create_subscription(
+            Vector3,
+            '/baselink/translate',
+            self._baselink_translate_callback,
+            qos_sensor
+        )
+        self._l_foot_translate_subscriber_ = self.create_subscription(
+            Vector3,
+            '/l_foot/translate',
+            self._l_foot_translate_callback,
+            qos_sensor
+        )
+        self._r_foot_translate_subscriber_ = self.create_subscription(
+            Vector3,
+            '/r_foot/translate',
+            self._r_foot_translate_callback,
+            qos_sensor
+        )
+        self._baselink_quat_subscriber_ = self.create_subscription(
+            Quaternion,
+            '/baselink/quat',
+            self._baselink_quat_callback,
+            qos_sensor
+        )
+        self._l_foot_quat_subscriber_ = self.create_subscription(
+            Quaternion,
+            '/l_foot/quat',
+            self._l_foot_quat_callback,
+            qos_sensor
+        )
+        self._r_foot_quat_subscriber_ = self.create_subscription(
+            Quaternion,
+            '/r_foot/quat',
+            self._r_foot_quat_callback,
+            qos_sensor
+        )
+    def _baselink_translate_callback(self, msg: Vector3) -> None:
+        self._p_W["baselink"] = msg
+    def _l_foot_translate_callback(self, msg: Vector3) -> None:
+        self._p_W["l_foot"] = msg
+    def _r_foot_translate_callback(self, msg: Vector3) -> None:
+        self._p_W["r_foot"] = msg
+    def _baselink_quat_callback(self, msg: Quaternion) -> None:
+        self._q_W["baselink"] = msg
+    def _l_foot_quat_callback(self, msg: Quaternion) -> None:
+        self._q_W["l_foot"] = msg
+    def _r_foot_quat_callback(self, msg: Quaternion) -> None:
+        self._q_W["r_foot"] = msg
 
         self._handlers[self._current_phase].on_enter(self)
 
@@ -108,7 +164,6 @@ class BipedMotionPlannerNode(Node):
 
     def _enter_ss_to_ds(self) -> None:
         self.get_logger().info('[ENTER] SS_TO_DS')
-        self._switch_stance_and_swing()
         self.ss_to_ds_manager.clear_phase_state()
         self.ss_to_ds_manager.set_stance_side(self.stance_side)
         self.ss_to_ds_manager.set_swing_side(self.swing_side)
