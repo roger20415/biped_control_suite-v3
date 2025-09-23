@@ -34,7 +34,7 @@ class DSToSSManager:
         if side not in VALID_SUPPORT_SIDES:
             raise ValueError("Invalid support side.")
         self._support_side = side
-    # TODO add support side logic
+        # TODO add support side logic
 
     def build_stance_of_s(self, current_joint_target: NDArray[np.float64]) -> None:
         curr = np.asarray(current_joint_target, dtype=float).reshape(-1)
@@ -42,7 +42,7 @@ class DSToSSManager:
         self._stance_of_s = (1 - self._s) * M
         self._stance_func = sp.lambdify(self._s, self._stance_of_s, 'numpy')
 
-    def build_swing_of_s(self, p_W: Mapping[str, Vector3], q_W: Mapping[str, Quaternion]) -> None:
+    def deprecate_build_swing_of_s(self, p_W: Mapping[str, Vector3], q_W: Mapping[str, Quaternion]) -> None:
         if not self._if_subscribe_data_ready(p_W, q_W):
             raise ValueError("Position or orientation data is not yet received.")
         if not self._if_side_defined():
