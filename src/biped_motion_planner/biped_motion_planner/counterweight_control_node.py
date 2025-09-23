@@ -19,16 +19,20 @@ _COM_KEYS: tuple[str, ...] = (
     "l_ankle", "r_ankle",
     "l_foot", "r_foot",
 )
-SACRUM_MOVE_THRESHOLD: float = 0.0065/50 # in meters (left to right foot distance: 0.0065)
-SACRUM_MOVE_STEP: float = 0.018/180 #0.018/200 # joint target command (sacrum joint limits: +-0.009)
-PUBLISH_PERIOD: float = 0.05 # in seconds
+# in meters (left to right foot distance: 0.0065)
+SACRUM_MOVE_THRESHOLD: float = 0.0065/50
+# 0.018/200 # joint target command (sacrum joint limits: +-0.009)
+SACRUM_MOVE_STEP: float = 0.018/180
+PUBLISH_PERIOD: float = 0.05  # in seconds
 VALID_SUPPORT_SIDES: tuple[str, ...] = ("left", "right", "mid")
+
 
 class CounterweightControlNode(Node):
     def __init__(self):
         super().__init__('counterweight_control_node')
         self._support_side: SupportSide = "undefined"
-        self._p_W_joints_com: dict[str, NDArray[np.float64]] = {k: np.zeros(3, dtype=np.float64) for k in _COM_KEYS}
+        self._p_W_joints_com: dict[str, NDArray[np.float64]] = {
+            k: np.zeros(3, dtype=np.float64) for k in _COM_KEYS}
         self._sacrum_target: float = 0.0
         self._if_fall_down: bool = False
         self._p_W_l_foot: Optional[NDArray[np.float64]] = None
@@ -107,17 +111,20 @@ class CounterweightControlNode(Node):
 
     def _support_side_callback(self, msg: String) -> None:
         if msg.data != self._support_side:
-            self.get_logger().info(f"Switching support side from {self._support_side} to {msg.data}.")
+            self.get_logger().info(
+                f"Switching support side from {self._support_side} to {msg.data}.")
             if msg.data in ("left", "right", "mid"):
                 self._support_side = msg.data
             else:
-                self.get_logger().error(f"Invalid support side: {msg.data}. Keeping previous: {self._support_side}.")
+                self.get_logger().error(
+                    f"Invalid support side: {msg.data}. Keeping previous: {self._support_side}.")
 
     def _com_callback(self, msg: Float64MultiArray) -> None:
         data = np.asarray(msg.data, dtype=np.float64)
         expected = 3 * len(_COM_KEYS)
         if data.size != expected:
-            self.get_logger().error(f"Expected {expected} values (got {data.size}).")
+            self.get_logger().error(
+                f"Expected {expected} values (got {data.size}).")
             return
 
         vecs = data.reshape(len(_COM_KEYS), 3)
@@ -153,21 +160,22 @@ class CounterweightControlNode(Node):
 
         if support_side == "left":
             xLFOOT_W_norm = self._calc_xFOOT_W_norm(self._q_W_l_foot)
-            p_S_support =  self._p_W_l_foot - Config.FOOT_LINK_X_SEMI_LENGTH * xLFOOT_W_norm
+            p_S_support = self._p_W_l_foot - Config.FOOT_LINK_X_SEMI_LENGTH * xLFOOT_W_norm
             p_S_support[2] = 0.0
         elif support_side == "right":
             xRFOOT_W_norm = self._calc_xFOOT_W_norm(self._q_W_r_foot)
-            p_S_support =  self._p_W_r_foot - Config.FOOT_LINK_X_SEMI_LENGTH * xRFOOT_W_norm
+            p_S_support = self._p_W_r_foot - Config.FOOT_LINK_X_SEMI_LENGTH * xRFOOT_W_norm
             p_S_support[2] = 0.0
         else:
             raise ValueError("Support side is undefined.")
         return p_S_support
-    
+
     def _calc_xFOOT_W_norm(self, q_W_foot: Quaternion) -> NDArray[np.float64]:
-        R_W_FOOT: NDArray[np.float64] = LinearAlgebraUtils.quaternion_to_rotation_matrix(q_W_foot)
+        R_W_FOOT: NDArray[np.float64] = LinearAlgebraUtils.quaternion_to_rotation_matrix(
+            q_W_foot)
         xFOOT_W = R_W_FOOT[:, 0]
         return LinearAlgebraUtils.normalize_vec(xFOOT_W)
-    
+
     def _timer_callback(self) -> None:
         if self._support_side not in VALID_SUPPORT_SIDES:
             self.get_logger().warn("Support side is invalid.")
@@ -180,25 +188,29 @@ class CounterweightControlNode(Node):
             return
 
         try:
-            vec_S_com_to_support = self._calc_vec_S_com_to_support(support_side)
-            vec_S_sacrum_proj_norm   = self._calc_vec_S_sacrum_proj_norm()
+            vec_S_com_to_support = self._calc_vec_S_com_to_support(
+                support_side)
+            vec_S_sacrum_proj_norm = self._calc_vec_S_sacrum_proj_norm()
         except Exception as e:
             self.get_logger().error(f"Timer step failed: {e}")
             return
-        self._sacrum_target = self._calc_sacrum_target(vec_S_com_to_support, vec_S_sacrum_proj_norm)
+        self._sacrum_target = self._calc_sacrum_target(
+            vec_S_com_to_support, vec_S_sacrum_proj_norm)
         self._pub_counterweight_pos([0.0, self._sacrum_target])
-    
+
     def _calc_sacrum_target(self, vec_S_com_to_support: NDArray[np.float64], vec_S_sacrum_proj_norm: NDArray[np.float64]) -> float:
-        err_signed = float(np.dot(vec_S_com_to_support[:2], vec_S_sacrum_proj_norm[:2]))
+        err_signed = float(
+            np.dot(vec_S_com_to_support[:2], vec_S_sacrum_proj_norm[:2]))
         if abs(err_signed) < SACRUM_MOVE_THRESHOLD:
             return self._sacrum_target
         elif err_signed > 0:
             sacrum_target = self._sacrum_target - SACRUM_MOVE_STEP
         else:
             sacrum_target = self._sacrum_target + SACRUM_MOVE_STEP
-        sacrum_target = float(np.clip(sacrum_target, Config.SACRUM_MIN_TARGET, Config.SACRUM_MAX_TARGET))
+        sacrum_target = float(
+            np.clip(sacrum_target, Config.SACRUM_MIN_TARGET, Config.SACRUM_MAX_TARGET))
         return sacrum_target
-        
+
     def _baselink_quat_callback(self, msg: Quaternion) -> None:
         self._q_W_baselink = msg
 
@@ -214,16 +226,21 @@ class CounterweightControlNode(Node):
 
     def _l_foot_translate_callback(self, msg: Vector3) -> None:
         self._p_W_l_foot = np.array([msg.x, msg.y, msg.z], dtype=np.float64)
+
     def _r_foot_translate_callback(self, msg: Vector3) -> None:
         self._p_W_r_foot = np.array([msg.x, msg.y, msg.z], dtype=np.float64)
+
     def _l_foot_quat_callback(self, msg: Quaternion) -> None:
         self._q_W_l_foot = msg
+
     def _r_foot_quat_callback(self, msg: Quaternion) -> None:
         self._q_W_r_foot = msg
 
     def _calc_vec_S_com_to_support(self, support_side: str) -> NDArray[np.float64]:
-        p_W_biped_com: NDArray[np.float64] = self._calc_p_W_biped_com(self._p_W_joints_com)
-        p_S_biped_com: NDArray[np.float64] = np.array([p_W_biped_com[0], p_W_biped_com[1], 0.0], dtype=np.float64)
+        p_W_biped_com: NDArray[np.float64] = self._calc_p_W_biped_com(
+            self._p_W_joints_com)
+        p_S_biped_com: NDArray[np.float64] = np.array(
+            [p_W_biped_com[0], p_W_biped_com[1], 0.0], dtype=np.float64)
         p_S_support: NDArray[np.float64] = self._calc_p_S_support(support_side)
         vec_S_com_to_support: NDArray[np.float64] = p_S_support - p_S_biped_com
         return vec_S_com_to_support
@@ -231,7 +248,8 @@ class CounterweightControlNode(Node):
     def _calc_vec_S_sacrum_proj_norm(self) -> NDArray[np.float64]:
         if self._q_W_baselink is None:
             raise ValueError("Baselink quaternion is not yet received.")
-        R_WB = LinearAlgebraUtils.quaternion_to_rotation_matrix(self._q_W_baselink)
+        R_WB = LinearAlgebraUtils.quaternion_to_rotation_matrix(
+            self._q_W_baselink)
         vec_W_yB = R_WB[:, 1]
         vec_S_yB = np.array([vec_W_yB[0], vec_W_yB[1], 0.0], dtype=np.float64)
         vec_S_yB_length = np.linalg.norm(vec_S_yB)
@@ -239,7 +257,8 @@ class CounterweightControlNode(Node):
             return vec_S_yB
         return vec_S_yB / vec_S_yB_length
 
-def main(args=None):   
+
+def main(args=None):
     rclpy.init(args=args)
     node = CounterweightControlNode()
     try:
@@ -250,6 +269,7 @@ def main(args=None):
         node.destroy_node()
         rclpy.shutdown()
         sys.exit(0)
+
 
 if __name__ == '__main__':
     main()

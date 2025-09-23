@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sys
 import time
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -19,16 +18,16 @@ from .ds_to_ss_manager import DSToSSManager
 from .init_to_ss_manager import InitToSSManager
 from .ss_to_ds_manager import SSToDSManager
 
-TIMER_PERIOD: float = 0.05 # in seconds
-INIT_TO_SS_DURATION: float = 5.0 # in seconds
-SS_TO_DS_DURATION: float = 5.0 # in seconds
-DS_TO_SS_DURATION: float = 5.0 # in seconds
+TIMER_PERIOD: float = 0.05  # in seconds
+INIT_TO_SS_DURATION: float = 5.0  # in seconds
+SS_TO_DS_DURATION: float = 5.0  # in seconds
+DS_TO_SS_DURATION: float = 5.0  # in seconds
 
 
 class Phase(Enum):
     INIT_TO_SS = auto()
-    SS_TO_DS   = auto()
-    DS_TO_SS   = auto()
+    SS_TO_DS = auto()
+    DS_TO_SS = auto()
 
 
 @dataclass
@@ -54,7 +53,7 @@ class BipedMotionPlannerNode(Node):
         self._total_step_idx: int = 0
         self._phase_step_idx: int = 0
         self._phase_duration_time: float = 0.0
-        self._phase_time_budget: Dict[Phase, float] =  {
+        self._phase_time_budget: Dict[Phase, float] = {
             Phase.INIT_TO_SS: INIT_TO_SS_DURATION,
             Phase.SS_TO_DS: SS_TO_DS_DURATION,
             Phase.DS_TO_SS: DS_TO_SS_DURATION,
@@ -76,8 +75,10 @@ class BipedMotionPlannerNode(Node):
         self._next_stance_joint_pose: Optional[list[float]] = None
         self._next_swing_position: Optional[NDArray[np.float64]] = None
 
-        self._p_W: dict[str, Optional[Vector3]] = {k: None for k in REQUIRED_P_W_KEYS}
-        self._q_W: dict[str, Optional[Quaternion]] = {k: None for k in REQUIRED_Q_W_KEYS}
+        self._p_W: dict[str, Optional[Vector3]] = {
+            k: None for k in REQUIRED_P_W_KEYS}
+        self._q_W: dict[str, Optional[Quaternion]] = {
+            k: None for k in REQUIRED_Q_W_KEYS}
         self._left_joint_targets: Optional[NDArray[np.float64]] = None
         self._right_joint_targets: Optional[NDArray[np.float64]] = None
         qos_sensor = QoSProfile(
@@ -152,7 +153,7 @@ class BipedMotionPlannerNode(Node):
             Float64MultiArray,
             '/biped/stance_joint_target',
             10
-        ) # joint angles in degrees
+        )  # joint angles in degrees
         self._swing_target_publisher_ = self.create_publisher(
             Vector3,
             '/biped/swing_target',
@@ -161,24 +162,32 @@ class BipedMotionPlannerNode(Node):
 
     def _baselink_translate_callback(self, msg: Vector3) -> None:
         self._p_W["baselink"] = msg
+
     def _l_foot_translate_callback(self, msg: Vector3) -> None:
         self._p_W["l_foot"] = msg
+
     def _r_foot_translate_callback(self, msg: Vector3) -> None:
         self._p_W["r_foot"] = msg
+
     def _baselink_quat_callback(self, msg: Quaternion) -> None:
         self._q_W["baselink"] = msg
+
     def _l_foot_quat_callback(self, msg: Quaternion) -> None:
         self._q_W["l_foot"] = msg
+
     def _r_foot_quat_callback(self, msg: Quaternion) -> None:
         self._q_W["r_foot"] = msg
+
     def _left_joint_targets_callback(self, msg: Float64MultiArray) -> None:
         self._left_joint_targets = np.array(msg.data, dtype=np.float64)
+
     def _right_joint_targets_callback(self, msg: Float64MultiArray) -> None:
         self._right_joint_targets = np.array(msg.data, dtype=np.float64)
 
     def _pub_support_side(self) -> None:
         if self.support_side not in VALID_SUPPORT_SIDES:
-            self.get_logger().warn(f"Support side is invalid: {self.support_side}")
+            self.get_logger().warn(
+                f"Support side is invalid: {self.support_side}")
             return
         msg = String()
         msg.data = self.support_side
@@ -186,12 +195,13 @@ class BipedMotionPlannerNode(Node):
 
     def _pub_stance_side(self) -> None:
         if self.stance_side not in VALID_LEG_SIDES:
-            self.get_logger().warn(f"Stance side is invalid: {self.stance_side}")
+            self.get_logger().warn(
+                f"Stance side is invalid: {self.stance_side}")
             return
         msg = String()
         msg.data = self.stance_side
         self._stance_side_publisher_.publish(msg)
-    
+
     def _pub_swing_side(self) -> None:
         if self.swing_side not in VALID_LEG_SIDES:
             self.get_logger().warn(f"Swing side is invalid: {self.swing_side}")
@@ -276,9 +286,11 @@ class BipedMotionPlannerNode(Node):
 
     def _step_init_to_ss(self) -> Optional[Phase]:
         self._update_phase_timer()
-        s_value = max(0.0, min(self._phase_duration_time / self._phase_time_budget[Phase.INIT_TO_SS], 1.0))
+        s_value = max(0.0, min(self._phase_duration_time /
+                      self._phase_time_budget[Phase.INIT_TO_SS], 1.0))
         self._next_stance_joint_pose = [0.0]*Config.JOINT_NUMS
-        self._next_swing_position = self.init_to_ss_manager.calc_swing_position(s_value)
+        self._next_swing_position = self.init_to_ss_manager.calc_swing_position(
+            s_value)
         # TODO check if reached the target
         return None
 
@@ -294,9 +306,12 @@ class BipedMotionPlannerNode(Node):
 
     def _step_ss_to_ds(self) -> Optional[Phase]:
         self._update_phase_timer()
-        s_value = max(0.0, min(self._phase_duration_time / self._phase_time_budget[Phase.SS_TO_DS], 1.0))
-        self._next_stance_joint_pose = self.ss_to_ds_manager.calc_stance_joint_pose(s_value)
-        self._next_swing_position = self.ss_to_ds_manager.calc_swing_position(s_value)
+        s_value = max(0.0, min(self._phase_duration_time /
+                      self._phase_time_budget[Phase.SS_TO_DS], 1.0))
+        self._next_stance_joint_pose = self.ss_to_ds_manager.calc_stance_joint_pose(
+            s_value)
+        self._next_swing_position = self.ss_to_ds_manager.calc_swing_position(
+            s_value)
         # TODO check if reached the target
         return None
 
@@ -317,12 +332,15 @@ class BipedMotionPlannerNode(Node):
 
     def _step_ds_to_ss(self) -> Optional[Phase]:
         self._update_phase_timer()
-        s_value = max(0.0, min(self._phase_duration_time / self._phase_time_budget[Phase.DS_TO_SS], 1.0))
-        self._next_stance_joint_pose = self.ds_to_ss_manager.calc_stance_joint_pose(s_value)
-        self._next_swing_position = self.ds_to_ss_manager.calc_swing_position(s_value)
+        s_value = max(0.0, min(self._phase_duration_time /
+                      self._phase_time_budget[Phase.DS_TO_SS], 1.0))
+        self._next_stance_joint_pose = self.ds_to_ss_manager.calc_stance_joint_pose(
+            s_value)
+        self._next_swing_position = self.ds_to_ss_manager.calc_swing_position(
+            s_value)
         # TODO check if reached the target
         return None
-    
+
     def _start_phase_timer(self) -> None:
         self._phase_start_time = self.get_clock().now().nanoseconds * 1e-9
         self._phase_duration_time = 0.0
@@ -330,11 +348,12 @@ class BipedMotionPlannerNode(Node):
     def _update_phase_timer(self) -> None:
         now = self.get_clock().now()
         self._phase_duration_time = now.nanoseconds * 1e-9 - self._phase_start_time
-    
+
     def _switch_side(self) -> None:
         self.stance_side, self.swing_side = self.swing_side, self.stance_side
         # TODO support side switch logic
         self.support_side = self.stance_side
+
 
 def main(args=None):
     rclpy.init(args=args)
@@ -346,6 +365,7 @@ def main(args=None):
     finally:
         node.destroy_node()
         rclpy.shutdown()
+
 
 if __name__ == '__main__':
     main()

@@ -2,8 +2,8 @@ import numpy as np
 import rclpy
 import sys
 from rclpy.node import Node
-from std_msgs.msg import Float32, Float64MultiArray, String
-from .config import Config, LegSide
+from std_msgs.msg import Float64MultiArray, String
+from .config import LegSide
 
 VALID_LEG_SIDES: tuple[str, ...] = ("left", "right")
 
@@ -24,7 +24,7 @@ class StanceLegControlNode(Node):
             '/biped/stance_joint_target',
             self._stance_joint_target_callback,
             10
-        ) # joint angles in degrees
+        )  # joint angles in degrees
 
         self._left_joint_target_publisher_ = self.create_publisher(
             Float64MultiArray,
@@ -45,15 +45,18 @@ class StanceLegControlNode(Node):
         leg_side = self._leg_side
         joint_pose = msg.data
         # joint_pose in degrees
-        joint_pose_rad = [np.deg2rad(angle) for angle in joint_pose]  # Convert degrees to radians
+        # Convert degrees to radians
+        joint_pose_rad = [np.deg2rad(angle) for angle in joint_pose]
         self._pub_joint_pos(joint_pose_rad, leg_side)
 
     def _stance_side_callback(self, msg: String) -> None:
         if msg.data not in ("left", "right"):
-            self.get_logger().error(f"Invalid stance side: {msg.data}. Must be 'left' or 'right'.")
+            self.get_logger().error(
+                f"Invalid stance side: {msg.data}. Must be 'left' or 'right'.")
             return
         if msg.data != self._leg_side:
-            self.get_logger().info(f"Switching stance side from {self._leg_side} to {msg.data}.")
+            self.get_logger().info(
+                f"Switching stance side from {self._leg_side} to {msg.data}.")
             self._leg_side = msg.data
 
     def _pub_joint_pos(self, joint_pos: list[float], leg_side: str) -> None:
@@ -64,7 +67,8 @@ class StanceLegControlNode(Node):
         elif leg_side == "right":
             self._right_joint_target_publisher_.publish(msg)
         else:
-            self.get_logger().error(f"Invalid leg side: {leg_side}. Cannot publish joint targets.")
+            self.get_logger().error(
+                f"Invalid leg side: {leg_side}. Cannot publish joint targets.")
 
 
 def main(args=None):
@@ -78,6 +82,7 @@ def main(args=None):
         node.destroy_node()
         rclpy.shutdown()
         sys.exit(0)
+
 
 if __name__ == '__main__':
     main()
