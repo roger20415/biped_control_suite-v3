@@ -260,10 +260,10 @@ class BipedMotionPlannerNode(Node):
         )
         if (self._current_phase, next_phase) == (Phase.SS_TO_DS, Phase.DS_TO_SS):
             self._switch_side()
+            self._pub_support_side()
+            time.sleep(9)
         self._current_phase = next_phase
         self._phase_step_idx = 0
-        self._pub_support_side()
-        time.sleep(5)
         self._handlers[self._current_phase].on_enter()
 
     def _enter_init_to_ss(self) -> None:
@@ -309,18 +309,17 @@ class BipedMotionPlannerNode(Node):
         if self._left_joint_targets is None or self._right_joint_targets is None:
             raise ValueError("Left or Right joint target is not yet received.")
         if self.stance_side == "left":
-            self.ds_to_ss_manager.build_stance_of_s(self._left_joint_targets)
+            self.ds_to_ss_manager.build_stance_func(self._left_joint_targets)
         elif self.stance_side == "right":
-            self.ds_to_ss_manager.build_stance_of_s(self._right_joint_targets)
-        self.ds_to_ss_manager.build_swing_of_s(self._p_W, self._q_W)
+            self.ds_to_ss_manager.build_stance_func(self._right_joint_targets)
+        self.ds_to_ss_manager.build_swing_func(self._p_W, self._q_W)
         self._start_phase_timer()
 
     def _step_ds_to_ss(self) -> Optional[Phase]:
-        sys.exit(0)
         self._update_phase_timer()
         s_value = max(0.0, min(self._phase_duration_time / self._phase_time_budget[Phase.DS_TO_SS], 1.0))
-        self._next_stance_target = self.ds_to_ss_manager.calc_stance_target(s_value)
-        #self._next_swing_position = self.ds_to_ss_manager.calc_swing_position(s_value)
+        self._next_stance_joint_pose = self.ds_to_ss_manager.calc_stance_joint_pose(s_value)
+        self._next_swing_position = self.ds_to_ss_manager.calc_swing_position(s_value)
         # TODO check if reached the target
         return None
     
