@@ -11,15 +11,14 @@ from .linear_algebra_utils import LinearAlgebraUtils
 STANCE_LEG_JOINT_ALPHA: float = 10.0  # in degrees
 LAMBDA_FOR_SWING_END: float = 0.5  # between 0 and 1. lambda>0.5 baselink closer to swing end and further from suppport point.
 
+
 class SSToDSManager:
     def __init__(self):
         self._s = sp.symbols('s', real=True)
         self._stance_side: LegSide = "undefined"
         self._swing_side: LegSide = "undefined"
         self._support_side: SupportSide = "undefined"
-        self._stance_of_s: Optional[sp.Expr] = None
         self._stance_func = None
-        self._swing_of_s: Optional[NDArray[object]] = None
         self._swing_func = None
         self._xLFOOT_W_norm: Optional[NDArray[np.float64]] = None
         self._xRFOOT_W_norm: Optional[NDArray[np.float64]] = None
@@ -41,11 +40,11 @@ class SSToDSManager:
         self._support_side = side
     # TODO add support side logic
 
-    def build_stance_of_s(self) -> None:
-        self._stance_of_s = sp.simplify(sp.Float(float(STANCE_LEG_JOINT_ALPHA)) * (self._s))
-        self._stance_func = sp.lambdify(self._s, self._stance_of_s, 'numpy')
+    def build_stance_func(self) -> None:
+        stance_of_s = sp.simplify(sp.Float(float(STANCE_LEG_JOINT_ALPHA)) * (self._s))
+        self._stance_func = sp.lambdify(self._s, stance_of_s, 'numpy')
 
-    def build_swing_of_s(self, p_W: Mapping[str, Vector3], q_W: Mapping[str, Quaternion]) -> None:
+    def build_swing_func(self, p_W: Mapping[str, Vector3], q_W: Mapping[str, Quaternion]) -> None:
         if not self._if_subscribe_data_ready(p_W, q_W):
             raise ValueError("Position or orientation data is not yet received.")
         if not self._if_side_defined():
@@ -56,11 +55,10 @@ class SSToDSManager:
         p_S_swing_end: NDArray[np.float64] = self._calc_p_S_swing_end(p_S_baselink_target, p_S_stance)
         p_W_swing_start: NDArray[np.float64] = self._calc_p_W_swing_start(p_W, q_W)
         swing_of_s = self._build_swing_of_s(p_W_swing_start, p_S_swing_end) # the origin of swing_of_s is at the foot mid, need to shift to foot front(the target point)
-        self._swing_of_s = swing_of_s
-        self._swing_funcs = [sp.lambdify(self._s, expr, 'numpy') for expr in swing_of_s]
+        self._swing_func = [sp.lambdify(self._s, expr, 'numpy') for expr in swing_of_s]
 
     def calc_stance_joint_pose(self, s_value: float) -> list[float]:
-        if self._stance_of_s is None:
+        if self._stance_func is None:
             raise ValueError("Stance trajectory is not yet built.")
         if s_value < 0.0 or s_value > 1.0:
             raise ValueError("s_value must be between 0 and 1.")
@@ -68,19 +66,17 @@ class SSToDSManager:
         return self._compose_stance_joint_pose(stance_alpha)
 
     def calc_swing_position(self, s_value: float) -> NDArray[np.float64]:
-        if self._swing_of_s is None:
+        if self._swing_func is None:
             raise ValueError("Swing trajectory is not yet built.")
         if not (0.0 <= s_value <= 1.0):
             raise ValueError("s_value must be between 0 and 1.")
-        return np.array([float(f(s_value)) for f in self._swing_funcs], dtype=np.float64)
+        return np.array([float(f(s_value)) for f in self._swing_func], dtype=np.float64)
 
     def clear_phase_state(self) -> None:
         self._stance_side = "undefined"
         self._swing_side = "undefined"
         self._support_side = "undefined"
-        self._stance_of_s = None
         self._stance_func = None
-        self._swing_of_s = None
         self._swing_func = None
         self._xLFOOT_W_norm = None
 

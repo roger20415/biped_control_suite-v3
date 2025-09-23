@@ -271,7 +271,7 @@ class BipedMotionPlannerNode(Node):
         self.init_to_ss_manager.clear_phase_state()
         self.init_to_ss_manager.set_support_side(self.support_side)
         self.init_to_ss_manager.set_swing_side(self.swing_side)
-        self.init_to_ss_manager.build_swing_of_s(self._p_W)
+        self.init_to_ss_manager.build_swing_func(self._p_W)
         self._start_phase_timer()
 
     def _step_init_to_ss(self) -> Optional[Phase]:
@@ -288,8 +288,8 @@ class BipedMotionPlannerNode(Node):
         self.ss_to_ds_manager.set_stance_side(self.stance_side)
         self.ss_to_ds_manager.set_swing_side(self.swing_side)
         self.ss_to_ds_manager.set_support_side(self.support_side)
-        self.ss_to_ds_manager.build_stance_of_s()
-        self.ss_to_ds_manager.build_swing_of_s(self._p_W, self._q_W)
+        self.ss_to_ds_manager.build_stance_func()
+        self.ss_to_ds_manager.build_swing_func(self._p_W, self._q_W)
         self._start_phase_timer()
 
     def _step_ss_to_ds(self) -> Optional[Phase]:
