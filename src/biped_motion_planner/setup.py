@@ -20,7 +20,9 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'single_leg_control_node = biped_motion_planner.single_leg_control_node:main',
+            'biped_motion_planner_node = biped_motion_planner.biped_motion_planner_node:main',
+            'swing_leg_control_node = biped_motion_planner.swing_leg_control_node:main',
+            'stance_leg_control_node = biped_motion_planner.stance_leg_control_node:main',
             'counterweight_control_node = biped_motion_planner.counterweight_control_node:main',
         ],
     },

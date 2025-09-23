@@ -2,8 +2,14 @@ from geometry_msgs.msg import Vector3
 from typing import Literal, TypeAlias
 
 LegSide: TypeAlias = Literal["left", "right", "undefined"]
+SupportSide: TypeAlias = Literal["left", "right", "mid", "undefined"]
+VALID_LEG_SIDES: tuple[str, ...] = ("left", "right")
+VALID_SUPPORT_SIDES: tuple[str, ...] = ("left", "right", "mid")
+REQUIRED_P_W_KEYS: tuple[str, ...] = ("baselink", "l_foot", "r_foot")
+REQUIRED_Q_W_KEYS: tuple[str, ...] = ("baselink", "l_foot", "r_foot")
 
 class Config:
+    JOINT_NUMS: int = 5 # exclude back, sacrum
     # foot length (in meters)
     HIP_LEN: float = 0.0043 # hip to thigh joint
     THIGH_LEN: float = 0.006 # thigh to calf joint
@@ -46,3 +52,8 @@ class Config:
     FOOT_MASS: float = 0.00046
 
     FALL_DOWN_BASELINK_Z_THRESHOLD: float = 0.011 # in meters
+
+    FOOT_LINK_X_SEMI_LENGTH: float = 0.002 # in meters
+
+    SS_SWING_FOOT_HEIGHT: float = 0.0011 # in meters
+    SWING_TRAJECTORY_MID_HEIGHT: float = 0.0015 # in meters
