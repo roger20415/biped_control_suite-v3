@@ -30,12 +30,12 @@ class StanceLegControlNode(Node):
             Float64MultiArray,
             '/biped/left_joint_target',
             10
-        )
+        )  # in rad
         self._right_joint_target_publisher_ = self.create_publisher(
             Float64MultiArray,
             '/biped/right_joint_target',
             10
-        )
+        )  # in rad
 
     def _stance_joint_target_callback(self, msg: Float64MultiArray) -> None:
         # joint angles in degrees
@@ -63,9 +63,9 @@ class StanceLegControlNode(Node):
         msg = Float64MultiArray()
         msg.data = [float(i) for i in joint_pos]
         if leg_side == "left":
-            self._left_joint_target_publisher_.publish(msg)
+            self._left_joint_target_publisher_.publish(msg)  # in rad
         elif leg_side == "right":
-            self._right_joint_target_publisher_.publish(msg)
+            self._right_joint_target_publisher_.publish(msg)  # in rad
         else:
             self.get_logger().error(
                 f"Invalid leg side: {leg_side}. Cannot publish joint targets.")

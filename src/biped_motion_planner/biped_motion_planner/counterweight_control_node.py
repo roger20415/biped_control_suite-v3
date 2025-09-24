@@ -10,6 +10,7 @@ from typing import Optional
 from .config import Config, SupportSide
 from .linear_algebra_utils import LinearAlgebraUtils
 
+
 _COM_KEYS: tuple[str, ...] = (
     "baselink",
     "back", "sacrum",
