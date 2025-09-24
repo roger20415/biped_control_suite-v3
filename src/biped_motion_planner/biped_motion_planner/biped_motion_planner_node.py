@@ -19,10 +19,10 @@ from .init_to_ss_manager import InitToSSManager
 from .ss_to_ds_manager import SSToDSManager
 
 TIMER_PERIOD: float = 0.05  # in seconds
-INIT_TO_SS_DURATION: float = 5.0  # in seconds
-SS_TO_DS_DURATION: float = 5.0  # in seconds
-DS_TO_SS_DURATION: float = 5.0  # in seconds
-WAIT_SACRUM_TIME: float = 1.0  # in seconds
+INIT_TO_SS_DURATION: float = 1.0  # in seconds
+SS_TO_DS_DURATION: float = 1.0  # in seconds
+DS_TO_SS_DURATION: float = 1.0  # in seconds
+WAIT_SACRUM_TIME: float = 1.3  # in seconds
 
 
 class Phase(Enum):
