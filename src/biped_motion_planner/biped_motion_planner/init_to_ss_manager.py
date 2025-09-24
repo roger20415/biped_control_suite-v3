@@ -1,5 +1,3 @@
-from typing import Optional
-
 import numpy as np
 import sympy as sp
 from geometry_msgs.msg import Vector3
@@ -14,12 +12,12 @@ class InitToSSManager:
         self._swing_side: LegSide = "undefined"
         self._swing_func = None
         self._s = sp.symbols('s', real=True)
-    
+
     def set_support_side(self, side: SupportSide) -> None:
         if side not in VALID_SUPPORT_SIDES:
             raise ValueError("Invalid support side.")
         self._support_side = side
-    
+
     def set_swing_side(self, side: LegSide) -> None:
         if side not in VALID_LEG_SIDES:
             raise ValueError("Invalid leg side.")
@@ -31,7 +29,8 @@ class InitToSSManager:
         elif self._swing_side == "right":
             p_W_foot = p_W["r_foot"]
         swing_of_s = self._build_swing_of_s(p_W_foot)
-        self._swing_func = [sp.lambdify(self._s, e, 'numpy') for e in swing_of_s]
+        self._swing_func = [sp.lambdify(self._s, e, 'numpy')
+                            for e in swing_of_s]
 
     def calc_swing_position(self, s_value: float) -> np.ndarray:
         if self._swing_func is None:
@@ -43,7 +42,7 @@ class InitToSSManager:
         self._support_side = "undefined"
         self._swing_side = "undefined"
         self._swing_func = None
-    
+
     def _if_side_defined(self) -> bool:
         return self._support_side in VALID_SUPPORT_SIDES and self._swing_side in VALID_LEG_SIDES
 

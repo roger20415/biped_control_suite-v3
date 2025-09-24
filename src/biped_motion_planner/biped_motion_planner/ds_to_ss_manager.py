@@ -1,4 +1,4 @@
-from typing import Mapping, Optional
+from typing import Mapping
 
 import numpy as np
 import sympy as sp
@@ -7,6 +7,7 @@ from numpy.typing import NDArray
 
 from .config import Config, LegSide, SupportSide, VALID_LEG_SIDES, VALID_SUPPORT_SIDES, REQUIRED_P_W_KEYS, REQUIRED_Q_W_KEYS
 from .linear_algebra_utils import LinearAlgebraUtils
+
 
 class DSToSSManager:
     def __init__(self):
@@ -26,7 +27,7 @@ class DSToSSManager:
         if side not in VALID_LEG_SIDES:
             raise ValueError("Invalid leg side.")
         self._swing_side = side
-    
+
     def set_support_side(self, side: SupportSide) -> None:
         if side not in VALID_SUPPORT_SIDES:
             raise ValueError("Invalid support side.")
@@ -38,7 +39,8 @@ class DSToSSManager:
         stance_of_s = np.empty(Config.JOINT_NUMS, dtype=object)
         for i in range(Config.JOINT_NUMS):
             stance_of_s[i] = sp.simplify(raw_stance_of_s[i])
-        self._stance_func = [sp.lambdify(self._s, expr, 'numpy') for expr in stance_of_s]
+        self._stance_func = [sp.lambdify(
+            self._s, expr, 'numpy') for expr in stance_of_s]
 
     def calc_stance_joint_pose(self, s_value: float) -> list[float]:
         if self._stance_func is None:
@@ -67,8 +69,9 @@ class DSToSSManager:
         swing_start = self._calc_swing_start(p_W_swingFoot, zSwingFoot_W_norm)
         swing_end = self._calc_swing_end(p_W_stanceFoot, yB_W_norm)
         swing_of_s = self._build_swing_of_s(swing_start, swing_end)
-        self._swing_func = [sp.lambdify(self._s, expr, 'numpy') for expr in swing_of_s]
-        
+        self._swing_func = [sp.lambdify(self._s, expr, 'numpy')
+                            for expr in swing_of_s]
+
     def calc_swing_position(self, s_value: float) -> NDArray[np.float64]:
         if self._swing_func is None:
             raise ValueError("Swing trajectory is not yet built.")
@@ -91,27 +94,31 @@ class DSToSSManager:
             if q_W.get(key) is None:
                 return False
         return True
-    
+
     def _if_side_defined(self) -> bool:
         return self._stance_side in VALID_LEG_SIDES and self._swing_side in VALID_LEG_SIDES and self._support_side in VALID_SUPPORT_SIDES
 
     def _calc_zFOOT_W_norm(self, q_W_foot: Quaternion) -> NDArray[np.float64]:
-        R_W_FOOT: NDArray[np.float64] = LinearAlgebraUtils.quaternion_to_rotation_matrix(q_W_foot)
+        R_W_FOOT: NDArray[np.float64] = LinearAlgebraUtils.quaternion_to_rotation_matrix(
+            q_W_foot)
         zFOOT_W = R_W_FOOT[:, 2]
         return LinearAlgebraUtils.normalize_vec(zFOOT_W)
 
     def _calc_yB_W_norm(self, q_W_baselink: Quaternion) -> NDArray[np.float64]:
-        R_WB: NDArray[np.float64] = LinearAlgebraUtils.quaternion_to_rotation_matrix(q_W_baselink)
+        R_WB: NDArray[np.float64] = LinearAlgebraUtils.quaternion_to_rotation_matrix(
+            q_W_baselink)
         yB_W = R_WB[:, 1]
         return LinearAlgebraUtils.normalize_vec(yB_W)
 
     def _calc_swing_start(self, p_W_swingFoot: Vector3, zSwingFoot_W_norm: NDArray[np.float64]) -> NDArray[np.float64]:
-        p_W_swingFoot = np.array([p_W_swingFoot.x, p_W_swingFoot.y, p_W_swingFoot.z], dtype=float)
+        p_W_swingFoot = np.array(
+            [p_W_swingFoot.x, p_W_swingFoot.y, p_W_swingFoot.z], dtype=float)
         swing_start = p_W_swingFoot - Config.FOOT_LEN*zSwingFoot_W_norm
-        return swing_start # foot bottom
-    
+        return swing_start  # foot bottom
+
     def _calc_swing_end(self, p_W_stanceFoot: Vector3, yB_W_norm: NDArray[np.float64]) -> NDArray[np.float64]:
-        p_W_stanceFoot = np.array([p_W_stanceFoot.x, p_W_stanceFoot.y, p_W_stanceFoot.z], dtype=float)
+        p_W_stanceFoot = np.array(
+            [p_W_stanceFoot.x, p_W_stanceFoot.y, p_W_stanceFoot.z], dtype=float)
         foot_to_center_distance = Config.ORIGIN_L_TARGET.y
         if self._swing_side == "left":
             swing_end = p_W_stanceFoot + yB_W_norm*(2*foot_to_center_distance)
@@ -120,8 +127,8 @@ class DSToSSManager:
         else:
             raise ValueError("Swing side is undefined.")
         swing_end[2] = Config.SS_SWING_FOOT_HEIGHT
-        return swing_end # foot bottom
-    
+        return swing_end  # foot bottom
+
     def _build_swing_of_s(self, swing_start: NDArray[np.float64], swing_end: NDArray[np.float64]) -> NDArray[object]:
         raw_swing_of_s = swing_start*(1 - self._s) + swing_end*self._s
         swing_of_s = np.empty(3, dtype=object)

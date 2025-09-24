@@ -8,14 +8,15 @@ VALID_SUPPORT_SIDES: tuple[str, ...] = ("left", "right", "mid")
 REQUIRED_P_W_KEYS: tuple[str, ...] = ("baselink", "l_foot", "r_foot")
 REQUIRED_Q_W_KEYS: tuple[str, ...] = ("baselink", "l_foot", "r_foot")
 
+
 class Config:
-    JOINT_NUMS: int = 5 # exclude back, sacrum
+    JOINT_NUMS: int = 5  # exclude back, sacrum
     # foot length (in meters)
-    HIP_LEN: float = 0.0043 # hip to thigh joint
-    THIGH_LEN: float = 0.006 # thigh to calf joint
-    CALF_LEN: float = 0.0053 # calf to ankle joint
-    ANKLE_LEN: float = 0.0043 # ankle to foot joint
-    FOOT_LEN: float = 0.0011 # foot joint to ground
+    HIP_LEN: float = 0.0043  # hip to thigh joint
+    THIGH_LEN: float = 0.006  # thigh to calf joint
+    CALF_LEN: float = 0.0053  # calf to ankle joint
+    ANKLE_LEN: float = 0.0043  # ankle to foot joint
+    FOOT_LEN: float = 0.0011  # foot joint to ground
 
     # joint angle limits (in degrees)
     L_HIP_MAX_DEG: float = 80.0
@@ -38,7 +39,7 @@ class Config:
     HIP_THETA_UW: float = 270.0
 
     # origin target point
-    ORIGIN_L_TARGET = Vector3(x=0.002, y= 0.00325, z=0.0)
+    ORIGIN_L_TARGET = Vector3(x=0.002, y=0.00325, z=0.0)
     ORIGIN_R_TARGET = Vector3(x=0.002, y=-0.00325, z=0.0)
 
     # link mass
@@ -51,9 +52,9 @@ class Config:
     ANKLE_MASS: float = 0.00009
     FOOT_MASS: float = 0.00046
 
-    FALL_DOWN_BASELINK_Z_THRESHOLD: float = 0.011 # in meters
+    FALL_DOWN_BASELINK_Z_THRESHOLD: float = 0.011  # in meters
 
-    FOOT_LINK_X_SEMI_LENGTH: float = 0.002 # in meters
+    FOOT_LINK_X_SEMI_LENGTH: float = 0.002  # in meters
 
-    SS_SWING_FOOT_HEIGHT: float = 0.0011 # in meters
-    SWING_TRAJECTORY_MID_HEIGHT: float = 0.0015 # in meters
+    SS_SWING_FOOT_HEIGHT: float = 0.0011  # in meters
+    SWING_TRAJECTORY_MID_HEIGHT: float = 0.0015  # in meters
