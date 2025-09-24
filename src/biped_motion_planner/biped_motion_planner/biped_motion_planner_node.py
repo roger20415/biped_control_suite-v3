@@ -22,6 +22,7 @@ TIMER_PERIOD: float = 0.05  # in seconds
 INIT_TO_SS_DURATION: float = 5.0  # in seconds
 SS_TO_DS_DURATION: float = 5.0  # in seconds
 DS_TO_SS_DURATION: float = 5.0  # in seconds
+WAIT_SACRUM_TIME: float = 1.0  # in seconds
 
 
 class Phase(Enum):
@@ -239,7 +240,7 @@ class BipedMotionPlannerNode(Node):
 
     def _on_timer_bootstrap(self) -> None:
         self._pub_support_side()
-        time.sleep(5)
+        time.sleep(WAIT_SACRUM_TIME/2)
         self._handlers[self._current_phase].on_enter()
         self._on_timer_impl = self._on_timer_main
 
@@ -277,7 +278,7 @@ class BipedMotionPlannerNode(Node):
         if (self._current_phase, next_phase) == (Phase.SS_TO_DS, Phase.DS_TO_SS):
             self._switch_side()
             self._pub_support_side()
-            time.sleep(9)
+            time.sleep(WAIT_SACRUM_TIME)
         self._current_phase = next_phase
         self._phase_step_idx = 0
         self._handlers[self._current_phase].on_enter()
