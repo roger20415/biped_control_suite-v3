@@ -20,10 +20,15 @@ _COM_KEYS: tuple[str, ...] = (
     "l_ankle", "r_ankle",
     "l_foot", "r_foot",
 )
-# in meters (left to right foot distance: 0.0065)
+# in meters
+# sacrum move range +-0.009
+# left to right foot distance 0.0065
 SACRUM_MOVE_THRESHOLD: float = 0.0065/50
-# 0.018/200 # joint target command (sacrum joint limits: +-0.009)
-SACRUM_MOVE_STEP: float = 0.018/180
+SACRUM_MAX_ERR: float = 0.018  # error_signed value max limit
+SACRUM_MIN_STEP: float = 0.0001
+SACRUM_MAX_STEP: float = 0.0035
+SACRUM_STEP_ALPHA: float = 0.8  # 0.5~1.5：<1 sensitive；>1 preserve
+
 PUBLISH_PERIOD: float = 0.05  # in seconds
 VALID_SUPPORT_SIDES: tuple[str, ...] = ("left", "right", "mid")
 
@@ -202,12 +207,20 @@ class CounterweightControlNode(Node):
     def _calc_sacrum_target(self, vec_S_com_to_support: NDArray[np.float64], vec_S_sacrum_proj_norm: NDArray[np.float64]) -> float:
         err_signed = float(
             np.dot(vec_S_com_to_support[:2], vec_S_sacrum_proj_norm[:2]))
+        
+        # deadband
         if abs(err_signed) < SACRUM_MOVE_THRESHOLD:
             return self._sacrum_target
-        elif err_signed > 0:
-            sacrum_target = self._sacrum_target - SACRUM_MOVE_STEP
+        
+        # normalize error sign to [0, 1]
+        mag = abs(err_signed) / SACRUM_MAX_ERR
+        mag = np.clip(mag, 0.0, 1.0)
+
+        step = SACRUM_MIN_STEP + (SACRUM_MAX_STEP - SACRUM_MIN_STEP) * (mag ** SACRUM_STEP_ALPHA)
+        if err_signed > 0:
+            sacrum_target = self._sacrum_target - step
         else:
-            sacrum_target = self._sacrum_target + SACRUM_MOVE_STEP
+            sacrum_target = self._sacrum_target + step
         sacrum_target = float(
             np.clip(sacrum_target, Config.SACRUM_MIN_TARGET, Config.SACRUM_MAX_TARGET))
         return sacrum_target
