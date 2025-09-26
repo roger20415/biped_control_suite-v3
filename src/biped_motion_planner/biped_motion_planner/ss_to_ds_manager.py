@@ -8,7 +8,7 @@ from numpy.typing import NDArray
 from .config import Config, LegSide, SupportSide, VALID_LEG_SIDES, VALID_SUPPORT_SIDES, REQUIRED_P_W_KEYS, REQUIRED_Q_W_KEYS
 from .linear_algebra_utils import LinearAlgebraUtils
 
-STANCE_LEG_JOINT_ALPHA: float = 19.0  # in degrees
+STANCE_LEG_JOINT_ALPHA: float = -8.0  # in degrees
 # between 0 and 1. lambda>0.5 baselink closer to swing end and further from suppport point.
 LAMBDA_FOR_SWING_END: float = 0.5
 
@@ -227,7 +227,7 @@ class SSToDSManager:
         return joint_pose
 
     def _validate_parameters(self) -> None:
-        if STANCE_LEG_JOINT_ALPHA <= 0.0 or STANCE_LEG_JOINT_ALPHA >= 90.0:
+        if STANCE_LEG_JOINT_ALPHA <= -90.0 or STANCE_LEG_JOINT_ALPHA >= 90.0:
             raise ValueError(
                 "STANCE_LEG_JOINT_ALPHA must be between 0 and 90 degrees.")
         if LAMBDA_FOR_SWING_END <= 0.0 or LAMBDA_FOR_SWING_END >= 1.0:
