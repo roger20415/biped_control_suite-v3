@@ -20,6 +20,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'data_collect_node = expert_data_collector.data_collect_node:main'
         ],
     },
 )
