@@ -107,7 +107,9 @@ class JointTargetsCalculator():
     def _calc_phi_BL(self) -> float:
         delta_y = self.p_B["hip"].y - self.p_B["foot"].y
         delta_z = self.p_B["hip"].z - self.p_B["foot"].z
-        return np.degrees(np.arctan2(-delta_y, delta_z))
+        phi_BL = np.degrees(np.arctan2(delta_y, delta_z))
+        phi_BL = TrigonometricUtils.normalize_angle_to_180(phi_BL)
+        return phi_BL
 
     def _project_gravity_to_uw_plane(self, R_BW: NDArray[np.float64], R_LB: NDArray[np.float64]) -> NDArray[np.float64]:
         """
@@ -260,6 +262,7 @@ class JointTargetsCalculator():
             np.arccos(np.dot(w_W, z_W) /
                       (np.linalg.norm(w_W)*np.linalg.norm(z_W)))
         phi_foot = np.degrees(phi_foot_rad)
+        phi_foot = TrigonometricUtils.normalize_angle_to_180(phi_foot)
         return phi_foot, False
 
     def _calc_and_clamp_joint_targets_rad(self) -> dict[str, float]:
