@@ -111,3 +111,6 @@ Thumbs.db
 
 # isaac sim connection
 /humble_ws
+
+# data
+*.npz
