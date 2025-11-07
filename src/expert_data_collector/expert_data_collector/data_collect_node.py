@@ -13,8 +13,9 @@ from sensor_msgs.msg import JointState
 TIMER_PERIOD_SEC = 0.05  #20 Hz
 
 BASELINK_HEIGHT_BOUND = (0.0137, 0.022) # must be consistent with IsaaclabRlEnvCfg
-FOOT_CONTACT_THRESHOLD = 0.00125 # must be consistent with IsaaclabRlEnvCfg
+FOOT_CONTACT_THRESHOLD = 0.0014 # must be consistent with IsaaclabRlEnvCfg
 
+DIRTY_DATA_ROLLBACK_N = 0
 DATA_BUFFER_SIZE = 1000
 SAVE_FILE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data/expert_data.npz")
 
@@ -42,6 +43,9 @@ class DataCollectNode(Node):
         self._act_dim: Optional[int] = None
         self._obs_buffer: List[np.ndarray] = []
         self._act_buffer: List[np.ndarray] = []
+
+        # === episode state ===
+        self._is_in_episode: bool = False
 
         qos_sensor = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -140,13 +144,34 @@ class DataCollectNode(Node):
     def on_timer(self) -> None:
         if not self._check_states_ready():
             print("Waiting for all state data to be ready...")
+            if self._is_in_episode:
+                print("State data lost, ending episode and rolling back.")
+                self._rollback_buffers(DIRTY_DATA_ROLLBACK_N)
+                self._is_in_episode = False
+            self._clean_actions_data()
             return
+        
         if not self._check_actions_ready():
             print("Waiting for all action data to be ready...")
+            if self._is_in_episode:
+                print("Action data lost, ending episode and rolling back.")
+                self._rollback_buffers(DIRTY_DATA_ROLLBACK_N)
+                self._is_in_episode = False
             return
-        if not self._check_data_in_episode(self._p_W_baselink_z):
+
+        current_in_episode = self._check_data_in_episode(self._p_W_baselink_z)
+        if not current_in_episode:
+            if self._is_in_episode:
+                print("rollback buffers...")
+                self._rollback_buffers(DIRTY_DATA_ROLLBACK_N)
+            self._is_in_episode = False
+            self._clean_actions_data()
             print("Not in episode, skipping data collection...")
             return
+        
+        if not self._is_in_episode:
+            print("Starting new episode data collection...")
+            self._is_in_episode = True
 
         # compose observations
         obs_list: list[float] = []
@@ -162,9 +187,9 @@ class DataCollectNode(Node):
         ## 5 11 joints velocities
         obs_list.extend([float(x) for x in self._joint_velocities])
         ## 6 left foot contact
-        obs_list.append(self._check_foot_contact(self._p_W_l_foot_z))
+        obs_list.append(float(self._p_W_l_foot_z))
         ## 7 right foot contact
-        obs_list.append(self._check_foot_contact(self._p_W_r_foot_z))
+        obs_list.append(float(self._p_W_r_foot_z))
         obs = np.asarray(obs_list, dtype=np.float32)
 
         # compose actions
@@ -192,14 +217,26 @@ class DataCollectNode(Node):
         self._act_buffer.append(acts)
 
         # if buffer full, flush to NPZ
-        if len(self._obs_buffer) >= DATA_BUFFER_SIZE:
+        if len(self._obs_buffer) >= DATA_BUFFER_SIZE + DIRTY_DATA_ROLLBACK_N:
+            print("flush into npz...")
             self._flush_npz()
 
     def _flush_npz(self) -> None:
+        # check buffer validity
         if not self._obs_buffer:
             return
-        obs_arr = np.stack(self._obs_buffer, axis=0).astype(np.float32)
-        act_arr = np.stack(self._act_buffer, axis=0).astype(np.float32)
+        if len(self._obs_buffer) <= DIRTY_DATA_ROLLBACK_N:
+            print("Not enough clean data, skip flushing.")
+            return
+        
+        # split dirty data and clean data
+        data_to_flush_obs = self._obs_buffer[: -DIRTY_DATA_ROLLBACK_N]
+        data_to_flush_act = self._act_buffer[: -DIRTY_DATA_ROLLBACK_N]
+        data_to_keep_obs = self._obs_buffer[-DIRTY_DATA_ROLLBACK_N:]
+        data_to_keep_act = self._act_buffer[-DIRTY_DATA_ROLLBACK_N:]
+
+        obs_arr = np.stack(data_to_flush_obs, axis=0).astype(np.float32)
+        act_arr = np.stack(data_to_flush_act, axis=0).astype(np.float32)
 
         if os.path.exists(SAVE_FILE_PATH):
             try:
@@ -212,10 +249,14 @@ class DataCollectNode(Node):
                 obs_out, act_out = obs_arr, act_arr
         else:
             obs_out, act_out = obs_arr, act_arr
-
         np.savez(SAVE_FILE_PATH, obs=obs_out, actions=act_out)
-        self._obs_buffer.clear()
-        self._act_buffer.clear()
+        print(f"Saved {obs_out.shape[0]} samples to {SAVE_FILE_PATH}")
+
+        # reset buffers
+        self._obs_buffer = data_to_keep_obs
+        self._act_buffer = data_to_keep_act
+        print(f"Flushed {len(obs_arr)} samples. "
+              f"Kept {len(self._obs_buffer)} (n={DIRTY_DATA_ROLLBACK_N}) in buffer.")
 
     def destroy_node(self):
         try:
@@ -239,7 +280,12 @@ class DataCollectNode(Node):
             not self._right_joint_targets):
             return False
         return True
-    
+
+    def _clean_actions_data(self) -> None:
+        self._sacrum_joint_target = None
+        self._left_joint_targets = None
+        self._right_joint_targets = None
+
     def _quaternion_to_euler(self, q: Quaternion) -> list[float]:
         x, y, z, w = q.x, q.y, q.z, q.w
         sinr_cosp = 2 * (w * x + y * z)
@@ -262,6 +308,19 @@ class DataCollectNode(Node):
         if BASELINK_HEIGHT_BOUND[0] < baselink_z < BASELINK_HEIGHT_BOUND[1]:
             return True
         return False
+
+    def _rollback_buffers(self, n: int) -> None:
+            if n <= 0:
+                return
+            num_in_buffer = len(self._obs_buffer)
+            if num_in_buffer == 0:
+                return
+            if num_in_buffer < n:
+                self._obs_buffer.clear()
+                self._act_buffer.clear()
+            else:
+                self._obs_buffer = self._obs_buffer[:-n]
+                self._act_buffer = self._act_buffer[:-n]
 
 def main(args=None):
 
