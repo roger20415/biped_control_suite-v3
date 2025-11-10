@@ -12,10 +12,10 @@ from sensor_msgs.msg import JointState
 
 TIMER_PERIOD_SEC = 0.05  #20 Hz
 
-BASELINK_HEIGHT_BOUND = (0.0137, 0.022) # must be consistent with IsaaclabRlEnvCfg
+BASELINK_HEIGHT_BOUND = (0.0198, 0.0212) # must be consistent with IsaaclabRlEnvCfg
 FOOT_CONTACT_THRESHOLD = 0.0014 # must be consistent with IsaaclabRlEnvCfg
 
-DIRTY_DATA_ROLLBACK_N = 0
+DIRTY_DATA_ROLLBACK_N = 5
 DATA_BUFFER_SIZE = 1000
 SAVE_FILE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data/expert_data.npz")
 
@@ -187,9 +187,9 @@ class DataCollectNode(Node):
         ## 5 11 joints velocities
         obs_list.extend([float(x) for x in self._joint_velocities])
         ## 6 left foot contact
-        obs_list.append(float(self._p_W_l_foot_z))
+        obs_list.append(self._check_foot_contact(self._p_W_l_foot_z))
         ## 7 right foot contact
-        obs_list.append(float(self._p_W_r_foot_z))
+        obs_list.append(self._check_foot_contact(self._p_W_r_foot_z))
         obs = np.asarray(obs_list, dtype=np.float32)
 
         # compose actions
