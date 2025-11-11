@@ -9,16 +9,16 @@ obs_header = (
     "l_foot_contact,r_foot_contact"
 )
 
-f = np.load("expert_data.npz", allow_pickle=True)
+f = np.load("data/expert_data.npz", allow_pickle=True)
 print("keys:", f.files)
 
 actions = f["actions"]   # shape=(1324, 11)
 obs = f["obs"]           # shape=(1324, 34)
 f.close()
 
-np.savetxt("actions.csv", actions, delimiter=",", fmt="%.6f",
+np.savetxt("data/actions.csv", actions, delimiter=",", fmt="%.6f",
            header=action_header, comments="", encoding="utf-8-sig")
-np.savetxt("obs.csv", obs, delimiter=",", fmt="%.6f",
+np.savetxt("data/obs.csv", obs, delimiter=",", fmt="%.6f",
            header=obs_header, comments="", encoding="utf-8-sig")
 
 print("export actions.csv & obs.csv")
