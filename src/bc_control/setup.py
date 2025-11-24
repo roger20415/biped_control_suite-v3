@@ -20,6 +20,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'bc_inference_node = bc_control.bc_inference_node:main',
         ],
     },
 )

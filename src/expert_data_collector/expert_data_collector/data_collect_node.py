@@ -266,6 +266,7 @@ class DataCollectNode(Node):
 
     def _check_states_ready(self) -> bool:
         if (self._p_W_baselink_z is None or
+            self._q_W_baselink is None or
             self._p_W_l_foot_z is None or
             self._p_W_r_foot_z is None or
             not self._twist_W_baselink or
