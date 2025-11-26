@@ -15,7 +15,7 @@ TIMER_PERIOD_SEC = 0.05  #20 Hz
 BASELINK_HEIGHT_BOUND = (0.0198, 0.0212) # must be consistent with IsaaclabRlEnvCfg
 FOOT_CONTACT_THRESHOLD = 0.0014 # must be consistent with IsaaclabRlEnvCfg
 
-DIRTY_DATA_ROLLBACK_N = 5
+DIRTY_DATA_ROLLBACK_N = 30
 DATA_BUFFER_SIZE = 1000
 SAVE_FILE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data/expert_data.npz")
 
