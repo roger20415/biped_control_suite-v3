@@ -47,6 +47,7 @@ class DataCollectNode(Node):
         self._act_buffer: List[np.ndarray] = []
 
         self._state_history: deque = deque(maxlen=PRE_STATE_QUEUE_LEN)
+        self._action_history: deque = deque(maxlen=PRE_STATE_QUEUE_LEN)
 
         # === episode state ===
         self._is_in_episode: bool = False
@@ -171,6 +172,7 @@ class DataCollectNode(Node):
             self._is_in_episode = False
             self._clean_actions_data()
             self._state_history.clear()
+            self._action_history.clear()
             print("Not in episode, skipping data collection...")
             return
         
@@ -178,6 +180,7 @@ class DataCollectNode(Node):
             print("Starting new episode data collection...")
             self._is_in_episode = True
             self._state_history.clear()
+            self._action_history.clear()
 
         # compose observations
         current_state_list: list[float] = []
@@ -199,45 +202,56 @@ class DataCollectNode(Node):
         current_state = np.asarray(current_state_list, dtype=np.float32)
         state_dim = current_state.shape[0]
 
-        # update state history
-        prev_states = list(self._state_history)
-        missing_frames = 2 - len(prev_states)
-
-        obs_parts = []
-        if missing_frames > 0:
-            zeros = np.zeros(state_dim, dtype=np.float32)
-            for _ in range(missing_frames):
-                obs_parts.append(zeros)
-
-        obs_parts.extend(prev_states)
-        obs_parts.append(current_state)
-        final_obs = np.concatenate(obs_parts, axis=0)
-
-        self._state_history.append(current_state)
-
         # compose actions
         act_list: list[float] = []
-        ## 1 sacrum joint target
         act_list.append(float(self._sacrum_joint_target))
-        ## 2 left 5 joints targets
         act_list.extend([float(x) for x in self._left_joint_targets])
-        ## 3 right 5 joints targets
         act_list.extend([float(x) for x in self._right_joint_targets])
-        acts = np.asarray(act_list, dtype=np.float32)
+        current_action = np.asarray(act_list, dtype=np.float32)
+        act_dim = current_action.shape[0]
 
+        # update state history
+        prev_states = list(self._state_history)
+        missing_state_frames = PRE_STATE_QUEUE_LEN - len(prev_states)
+
+        obs_parts = []
+        if missing_state_frames > 0:
+            padding_state = np.zeros(state_dim, dtype=np.float32)
+            padding_state[-1] = 1.0  # Right Foot Contact = True
+            padding_state[-2] = 1.0  # Left Foot Contact = True
+            for _ in range(missing_state_frames):
+                obs_parts.append(padding_state)
+                
+        obs_parts.extend(prev_states)
+        obs_parts.append(current_state)
+
+        prev_actions = list(self._action_history)
+        missing_act_frames = PRE_STATE_QUEUE_LEN - len(prev_actions)
+        if missing_act_frames > 0:
+            act_zeros = np.zeros(act_dim, dtype=np.float32)
+            for _ in range(missing_act_frames):
+                obs_parts.append(act_zeros)
+        obs_parts.extend(prev_actions)
+        final_obs = np.concatenate(obs_parts, axis=0)
+        # final_obs: [S_t-2, S_t-1, S_t, A_t-2, A_t-1]
+
+
+        self._state_history.append(current_state)
+        self._action_history.append(current_action)
+        
         # record dimensions if first time
         if self._obs_dim is None:
             self._obs_dim = final_obs.shape[0]
         if self._act_dim is None:
-            self._act_dim = acts.shape[0]
+            self._act_dim = current_action.shape[0]
 
         # protect against dimension mismatch
-        if final_obs.shape[0] != self._obs_dim or acts.shape[0] != self._act_dim:
+        if final_obs.shape[0] != self._obs_dim or current_action.shape[0] != self._act_dim:
             return
 
         # add in buffer
         self._obs_buffer.append(final_obs)
-        self._act_buffer.append(acts)
+        self._act_buffer.append(current_action)
 
         # if buffer full, flush to NPZ
         if len(self._obs_buffer) >= DATA_BUFFER_SIZE + DIRTY_DATA_ROLLBACK_N:
