@@ -15,7 +15,7 @@ TIMER_PERIOD_SEC = 0.05  #20 Hz
 BASELINK_HEIGHT_BOUND = (0.0198, 0.0212) # must be consistent with IsaaclabRlEnvCfg
 FOOT_CONTACT_THRESHOLD = 0.0014 # must be consistent with IsaaclabRlEnvCfg
 
-DIRTY_DATA_ROLLBACK_N = 5
+DIRTY_DATA_ROLLBACK_N = 30
 DATA_BUFFER_SIZE = 1000
 SAVE_FILE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data/expert_data.npz")
 
@@ -266,6 +266,7 @@ class DataCollectNode(Node):
 
     def _check_states_ready(self) -> bool:
         if (self._p_W_baselink_z is None or
+            self._q_W_baselink is None or
             self._p_W_l_foot_z is None or
             self._p_W_r_foot_z is None or
             not self._twist_W_baselink or

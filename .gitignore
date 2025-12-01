@@ -114,4 +114,5 @@ Thumbs.db
 
 # data
 *.npz
+*.npy
 *.csv
