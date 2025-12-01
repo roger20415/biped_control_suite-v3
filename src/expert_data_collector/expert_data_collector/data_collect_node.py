@@ -4,6 +4,7 @@ from typing import Optional, List
 
 import numpy as np
 import rclpy
+from collections import deque
 from geometry_msgs.msg import Quaternion, Twist, Vector3
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
@@ -15,6 +16,7 @@ TIMER_PERIOD_SEC = 0.05  #20 Hz
 BASELINK_HEIGHT_BOUND = (0.0198, 0.0212) # must be consistent with IsaaclabRlEnvCfg
 FOOT_CONTACT_THRESHOLD = 0.0014 # must be consistent with IsaaclabRlEnvCfg
 
+PRE_STATE_QUEUE_LEN = 2
 DIRTY_DATA_ROLLBACK_N = 30
 DATA_BUFFER_SIZE = 1000
 SAVE_FILE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data/expert_data.npz")
@@ -43,6 +45,8 @@ class DataCollectNode(Node):
         self._act_dim: Optional[int] = None
         self._obs_buffer: List[np.ndarray] = []
         self._act_buffer: List[np.ndarray] = []
+
+        self._state_history: deque = deque(maxlen=PRE_STATE_QUEUE_LEN)
 
         # === episode state ===
         self._is_in_episode: bool = False
@@ -166,31 +170,50 @@ class DataCollectNode(Node):
                 self._rollback_buffers(DIRTY_DATA_ROLLBACK_N)
             self._is_in_episode = False
             self._clean_actions_data()
+            self._state_history.clear()
             print("Not in episode, skipping data collection...")
             return
         
         if not self._is_in_episode:
             print("Starting new episode data collection...")
             self._is_in_episode = True
+            self._state_history.clear()
 
         # compose observations
-        obs_list: list[float] = []
+        current_state_list: list[float] = []
         ## 1 baselink z position
-        obs_list.append(float(self._p_W_baselink_z))
+        current_state_list.append(float(self._p_W_baselink_z))
         ## 2 baselink eular angles
         eular_angle_W_baselink = self._quaternion_to_euler(self._q_W_baselink)
-        obs_list.extend([float(x) for x in eular_angle_W_baselink])
+        current_state_list.extend([float(x) for x in eular_angle_W_baselink])
         ## 3 baselink twist (linear vel & angular vel)
-        obs_list.extend([float(x) for x in self._twist_W_baselink])
+        current_state_list.extend([float(x) for x in self._twist_W_baselink])
         ## 4 11 joints positions
-        obs_list.extend([float(x) for x in self._joint_positions])
+        current_state_list.extend([float(x) for x in self._joint_positions])
         ## 5 11 joints velocities
-        obs_list.extend([float(x) for x in self._joint_velocities])
+        current_state_list.extend([float(x) for x in self._joint_velocities])
         ## 6 left foot contact
-        obs_list.append(self._check_foot_contact(self._p_W_l_foot_z))
+        current_state_list.append(self._check_foot_contact(self._p_W_l_foot_z))
         ## 7 right foot contact
-        obs_list.append(self._check_foot_contact(self._p_W_r_foot_z))
-        obs = np.asarray(obs_list, dtype=np.float32)
+        current_state_list.append(self._check_foot_contact(self._p_W_r_foot_z))
+        current_state = np.asarray(current_state_list, dtype=np.float32)
+        state_dim = current_state.shape[0]
+
+        # update state history
+        prev_states = list(self._state_history)
+        missing_frames = 2 - len(prev_states)
+
+        obs_parts = []
+        if missing_frames > 0:
+            zeros = np.zeros(state_dim, dtype=np.float32)
+            for _ in range(missing_frames):
+                obs_parts.append(zeros)
+
+        obs_parts.extend(prev_states)
+        obs_parts.append(current_state)
+        final_obs = np.concatenate(obs_parts, axis=0)
+
+        self._state_history.append(current_state)
 
         # compose actions
         act_list: list[float] = []
@@ -204,16 +227,16 @@ class DataCollectNode(Node):
 
         # record dimensions if first time
         if self._obs_dim is None:
-            self._obs_dim = obs.shape[0]
+            self._obs_dim = final_obs.shape[0]
         if self._act_dim is None:
             self._act_dim = acts.shape[0]
 
         # protect against dimension mismatch
-        if obs.shape[0] != self._obs_dim or acts.shape[0] != self._act_dim:
+        if final_obs.shape[0] != self._obs_dim or acts.shape[0] != self._act_dim:
             return
 
         # add in buffer
-        self._obs_buffer.append(obs)
+        self._obs_buffer.append(final_obs)
         self._act_buffer.append(acts)
 
         # if buffer full, flush to NPZ
