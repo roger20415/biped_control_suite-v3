@@ -217,6 +217,7 @@ class DataCollectNode(Node):
         obs_parts = []
         if missing_state_frames > 0:
             padding_state = np.zeros(state_dim, dtype=np.float32)
+            padding_state[0] = 0.0202 # baselink z initial pos
             padding_state[-1] = 1.0  # Right Foot Contact = True
             padding_state[-2] = 1.0  # Left Foot Contact = True
             for _ in range(missing_state_frames):
