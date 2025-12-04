@@ -200,7 +200,6 @@ class DataCollectNode(Node):
         ## 7 right foot contact
         current_state_list.append(self._check_foot_contact(self._p_W_r_foot_z))
         current_state = np.asarray(current_state_list, dtype=np.float32)
-        state_dim = current_state.shape[0]
 
         # compose actions
         act_list: list[float] = []
@@ -208,7 +207,6 @@ class DataCollectNode(Node):
         act_list.extend([float(x) for x in self._left_joint_targets])
         act_list.extend([float(x) for x in self._right_joint_targets])
         current_action = np.asarray(act_list, dtype=np.float32)
-        act_dim = current_action.shape[0]
 
         # update state history
         prev_states = list(self._state_history)
@@ -216,10 +214,10 @@ class DataCollectNode(Node):
 
         obs_parts = []
         if missing_state_frames > 0:
-            padding_state = np.zeros(state_dim, dtype=np.float32)
-            padding_state[0] = 0.0202 # baselink z initial pos
-            padding_state[-1] = 1.0  # Right Foot Contact = True
-            padding_state[-2] = 1.0  # Left Foot Contact = True
+            if len(prev_states) > 0:
+                padding_state = prev_states[0].copy()
+            else:
+                padding_state = current_state.copy()
             for _ in range(missing_state_frames):
                 obs_parts.append(padding_state)
                 
@@ -229,13 +227,15 @@ class DataCollectNode(Node):
         prev_actions = list(self._action_history)
         missing_act_frames = PRE_STATE_QUEUE_LEN - len(prev_actions)
         if missing_act_frames > 0:
-            act_zeros = np.zeros(act_dim, dtype=np.float32)
+            if len(prev_actions) > 0:
+                padding_action = prev_actions[0].copy()
+            else:
+                padding_action = current_action.copy()
             for _ in range(missing_act_frames):
-                obs_parts.append(act_zeros)
+                obs_parts.append(padding_action)
         obs_parts.extend(prev_actions)
         final_obs = np.concatenate(obs_parts, axis=0)
         # final_obs: [S_t-2, S_t-1, S_t, A_t-2, A_t-1]
-
 
         self._state_history.append(current_state)
         self._action_history.append(current_action)
