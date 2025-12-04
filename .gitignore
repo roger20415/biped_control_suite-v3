@@ -116,3 +116,4 @@ Thumbs.db
 *.npz
 *.npy
 *.csv
+*.pth
