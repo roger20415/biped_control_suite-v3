@@ -227,10 +227,7 @@ class DataCollectNode(Node):
         prev_actions = list(self._action_history)
         missing_act_frames = PRE_STATE_QUEUE_LEN - len(prev_actions)
         if missing_act_frames > 0:
-            if len(prev_actions) > 0:
-                padding_action = prev_actions[0].copy()
-            else:
-                padding_action = current_action.copy()
+            padding_action = np.zeros(current_action.shape[0], dtype=np.float32)
             for _ in range(missing_act_frames):
                 obs_parts.append(padding_action)
         obs_parts.extend(prev_actions)
