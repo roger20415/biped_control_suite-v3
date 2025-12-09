@@ -4,6 +4,7 @@ import rclpy
 import torch
 import numpy as np
 from typing import Optional, List
+from collections import deque
 
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
@@ -21,6 +22,9 @@ FOOT_CONTACT_THRESHOLD = 0.0014
 # Model Architecture Configs (Must match training!)
 NET_ARCH_PI = [64, 64]
 ACTIVATION_FN_STR = 'nn.ELU'
+
+OBS_HISTORY_LEN = 3
+ACTION_HISTORY_LEN = 2
 
 # Path Configs
 try:
@@ -60,7 +64,11 @@ class BcInferenceNode(Node):
         # Determine dimensions from Config
         self._obs_dim = self._obs_mean.shape[0]
         self._act_dim = self._action_scales.shape[0]
-        self._model = self._load_model()
+        self._input_dim = (self._obs_dim * OBS_HISTORY_LEN) + (self._act_dim * ACTION_HISTORY_LEN)
+        self._model = self._load_model(input_dim=self._input_dim)
+
+        self._obs_history = deque(maxlen=OBS_HISTORY_LEN)
+        self._act_history = deque(maxlen=ACTION_HISTORY_LEN)
 
         # QoS Setting
         qos_sensor = QoSProfile(
@@ -112,9 +120,9 @@ class BcInferenceNode(Node):
             self.get_logger().error(f"Failed to load action scales: {e}")
             raise e
 
-    def _load_model(self) -> ActorBC:
+    def _load_model(self, input_dim: int) -> ActorBC:
         model = ActorBC(
-            obs_dim=self._obs_dim,
+            obs_dim=input_dim,
             act_dim=self._act_dim,
             net_arch_pi=NET_ARCH_PI,
             activation_fn_str=ACTIVATION_FN_STR
@@ -167,27 +175,35 @@ class BcInferenceNode(Node):
         if not self._check_states_ready():
             return
         # 2. Compose Observation
-        raw_obs = self._compose_observation()
+        raw_obs_t = self._get_current_raw_state()
         # 3. Normalize Observation
-        normalized_obs = self._normalize_obs(raw_obs)
+        norm_obs_t = self._normalize_obs(raw_obs_t)
         
-        # 4. Model Inference
-        obs_tensor = torch.as_tensor(normalized_obs, dtype=torch.float32, device=self.device).unsqueeze(0)
+        # 4. Update History Buffer
+        self._update_history_buffers(norm_obs_t)
+        
+        # 5. Construct Stacked Input Vector [S_t-2, S_t-1, S_t, A_t-2, A_t-1]
+        input_vector = self._construct_model_input()
+        
+        # 6. Model Inference
+        # input_vector shape is (1, input_dim)
+        obs_tensor = torch.as_tensor(input_vector, dtype=torch.float32, device=self.device).unsqueeze(0)
+        
         with torch.no_grad():
-            raw_actions = self._model(obs_tensor).squeeze(0).cpu().numpy()
-        
-        # 5. Scale Actions
-        real_actions = self._scale_actions(raw_actions)
+            norm_action_pred = self._model(obs_tensor).squeeze(0).cpu().numpy()
+        self._act_history.append(norm_action_pred)
+
+        # 7. Scale Actions to Real World
+        real_actions = self._scale_actions(norm_action_pred)
         self._log_predict_actions(real_actions)
         
-        # 6. Publish Actions
+        # 8. Publish
         self._publish_actions(real_actions)
 
     # ================= Helper Functions =================
-    def _compose_observation(self) -> np.ndarray:
+    def _get_current_raw_state(self) -> np.ndarray:
         # 2. Construct Observation (MUST match training data order exactly)
         obs_list: list[float] = []
-        
         ## (1) baselink z position
         obs_list.append(float(self._p_W_baselink_z))
         
@@ -213,6 +229,23 @@ class BcInferenceNode(Node):
         # Convert to numpy array
         raw_obs = np.asarray(obs_list, dtype=np.float32)
         return raw_obs
+
+    def _update_history_buffers(self, current_norm_obs: np.ndarray) -> None:
+        if len(self._obs_history) == 0:
+            self._obs_history.append(current_norm_obs)
+            self._obs_history.append(current_norm_obs)
+            zeros_act = np.zeros(self._act_dim, dtype=np.float32)
+            self._act_history.append(zeros_act)
+            self._act_history.append(zeros_act)
+            
+        self._obs_history.append(current_norm_obs)
+
+    def _construct_model_input(self) -> np.ndarray:
+        s_list = list(self._obs_history)
+        a_list = list(self._act_history)
+        input_vector = np.concatenate(s_list + a_list, axis=0)
+        
+        return input_vector
 
     def _check_states_ready(self) -> bool:
         if (self._p_W_baselink_z is None or
