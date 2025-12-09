@@ -34,6 +34,7 @@ class DataCollectNode(Node):
         self._twist_W_baselink: Optional[list[float]] = None
         self._joint_positions: Optional[List[float]] = None
         self._joint_velocities: Optional[List[float]] = None
+        self._clock_sin_cos: Optional[List[float]] = None
 
         # for actions
         self._sacrum_joint_target: Optional[float] = None
@@ -93,6 +94,12 @@ class DataCollectNode(Node):
             self._r_foot_translate_callback,
             qos_sensor
         )
+        self._clock_subscriber_ = self.create_subscription(
+            Float64MultiArray,
+            '/biped/clock_sin_cos',
+            self._clock_callback,
+            qos_sensor
+        )
         self._left_joint_target_subscriber_ = self.create_subscription(
             Float64MultiArray,
             '/biped/left_joint_target',# 5 joints
@@ -139,6 +146,10 @@ class DataCollectNode(Node):
     def _r_foot_translate_callback(self, msg: Vector3) -> None:
         self._p_W_r_foot_z = msg.z
 
+    def _clock_callback(self, msg: Float64MultiArray) -> None:
+        if msg.data and len(msg.data) == 2:
+            self._clock_sin_cos = list(msg.data)
+
     def _left_joint_target_callback(self, msg: Float64MultiArray) -> None:
         self._left_joint_targets = list(msg.data) if msg.data else []
     def _right_joint_target_callback(self, msg: Float64MultiArray) -> None:
@@ -160,6 +171,14 @@ class DataCollectNode(Node):
             print("Waiting for all action data to be ready...")
             if self._is_in_episode:
                 print("Action data lost, ending episode and rolling back.")
+                self._rollback_buffers(DIRTY_DATA_ROLLBACK_N)
+                self._is_in_episode = False
+            return
+        
+        if not self._check_clock_ready():
+            print("Waiting for clock data to be ready...")
+            if self._is_in_episode:
+                print("Clock data lost, ending episode and rolling back.")
                 self._rollback_buffers(DIRTY_DATA_ROLLBACK_N)
                 self._is_in_episode = False
             return
@@ -231,6 +250,10 @@ class DataCollectNode(Node):
             for _ in range(missing_act_frames):
                 obs_parts.append(padding_action)
         obs_parts.extend(prev_actions)
+
+        clock_parts = self._clock_sin_cos
+        obs_parts.extend([np.array(clock_parts, dtype=np.float32)])
+
         final_obs = np.concatenate(obs_parts, axis=0)
         # final_obs: [S_t-2, S_t-1, S_t, A_t-2, A_t-1]
 
@@ -314,6 +337,11 @@ class DataCollectNode(Node):
         if (self._sacrum_joint_target is None or
             not self._left_joint_targets or
             not self._right_joint_targets):
+            return False
+        return True
+    
+    def _check_clock_ready(self) -> bool:
+        if (not self._clock_sin_cos):
             return False
         return True
 
