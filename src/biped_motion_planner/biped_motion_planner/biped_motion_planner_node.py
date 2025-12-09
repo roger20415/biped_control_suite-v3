@@ -361,6 +361,20 @@ class BipedMotionPlannerNode(Node):
         # TODO support side switch logic
         self.support_side = self.stance_side
 
+    def _cal_s_value_phase_offset(self) -> float:
+        phase_offset: float = 0.0
+        if self._current_phase == Phase.INIT_TO_SS:
+            phase_offset = 0.75
+        elif self._current_phase == Phase.SS_TO_DS and self.stance_side == "left":
+            phase_offset = 0.0
+        elif self._current_phase == Phase.DS_TO_SS and self.stance_side == "right":
+            phase_offset = 0.25
+        elif self._current_phase == Phase.SS_TO_DS and self.stance_side == "right":
+            phase_offset = 0.5
+        elif self._current_phase == Phase.DS_TO_SS and self.stance_side == "left":
+            phase_offset = 0.75
+        return phase_offset
+        
 
 def main(args=None):
     rclpy.init(args=args)
