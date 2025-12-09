@@ -175,7 +175,7 @@ class BcInferenceNode(Node):
         if not self._check_states_ready():
             return
         # 2. Compose Observation
-        raw_obs_t = self._compose_observation()
+        raw_obs_t = self._get_current_raw_state()
         # 3. Normalize Observation
         norm_obs_t = self._normalize_obs(raw_obs_t)
         
