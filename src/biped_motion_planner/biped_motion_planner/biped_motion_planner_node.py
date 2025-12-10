@@ -263,6 +263,7 @@ class BipedMotionPlannerNode(Node):
         self._pub_swing_side()
         self._pub_stance_joint_targets()
         self._pub_swing_target()
+        self._pub_clock_sin_cos()
         self._total_step_idx += 1
         self._phase_step_idx += 1
         if next_phase is not None or self._phase_budget_reached():
