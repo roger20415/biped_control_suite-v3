@@ -3,8 +3,9 @@ import os
 import rclpy
 import torch
 import numpy as np
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from collections import deque
+from dataclasses import dataclass
 
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
@@ -25,6 +26,7 @@ ACTIVATION_FN_STR = 'nn.ELU'
 
 OBS_HISTORY_LEN = 3
 ACTION_HISTORY_LEN = 2
+CLOCK_DIM = 2
 
 # Path Configs
 try:
@@ -34,6 +36,86 @@ except NameError:
 BODY_WEIGHTS_PATH  = os.path.join(SCRIPT_DIR, "model/bc_actor_body_weights.pth")
 HEAD_WEIGHTS_PATH  = os.path.join(SCRIPT_DIR, "model/bc_actor_head_weights.pth")
 ACTION_SCALES_PATH = os.path.join(SCRIPT_DIR, "action_scales.npy")
+
+
+@dataclass
+class PhaseConfig:
+    phase_type: str  # 'move' or 'stop'
+    target_val: float # End value for move, or holding value for stop
+    steps: int
+    start_val: float = 0.0 # Only used for 'move' to calc delta
+
+class ClockGenerator:
+    """
+    Generates a cyclic clock signal based on a predefined schedule.
+    Cycle:
+    1. 0.75 -> 0.0  (20 steps) [Init/Loop Start]
+    2. Stop at 0.0  (28 steps)
+    3. 0.0 -> 0.25  (20 steps)
+    4. Stop at 0.25 ( 3 steps)
+    5. 0.25 -> 0.5  (20 steps)
+    6. Stop at 0.5  (28 steps)
+    7. 0.5 -> 0.75  (20 steps)
+    8. Stop at 0.75 ( 3 steps)
+    """
+    def __init__(self):
+        # Define the cycle sequence
+        self.phases = [
+            # 1. 0.75 -> 0.0 (Moves from 0.75 to 1.0 which is 0.0)
+            PhaseConfig('move', start_val=0.75, target_val=1.0, steps=20),
+            # 2. Stop at 0.0
+            PhaseConfig('stop', start_val=0.0,  target_val=0.0, steps=28),
+            # 3. 0.0 -> 0.25
+            PhaseConfig('move', start_val=0.0,  target_val=0.25, steps=20),
+            # 4. Stop at 0.25
+            PhaseConfig('stop', start_val=0.25, target_val=0.25, steps=3),
+            # 5. 0.25 -> 0.5
+            PhaseConfig('move', start_val=0.25, target_val=0.5, steps=20),
+            # 6. Stop at 0.5
+            PhaseConfig('stop', start_val=0.5,  target_val=0.5, steps=28),
+            # 7. 0.5 -> 0.75
+            PhaseConfig('move', start_val=0.5,  target_val=0.75, steps=20),
+            # 8. Stop at 0.75
+            PhaseConfig('stop', start_val=0.75, target_val=0.75, steps=3),
+        ]
+        
+        self.current_phase_idx = 0
+        self.steps_in_phase = 0
+        self.current_clock = 0.75 # Start value
+
+    def step(self) -> Tuple[float, float]:
+        """Advances the clock by one step and returns (sin, cos)."""
+        phase = self.phases[self.current_phase_idx]
+
+        if phase.phase_type == 'stop':
+            self.current_clock = phase.target_val
+        
+        elif phase.phase_type == 'move':
+            # Calculate linear interpolation
+            progress = (self.steps_in_phase + 1) / phase.steps
+            # Handle wrapping if needed, but linear algebra handles 0.75->1.0 fine
+            # We treat 0.0 as 1.0 for the interpolation of the last segment if needed
+            start = phase.start_val
+            end = phase.target_val
+            self.current_clock = start + (end - start) * progress
+            
+            # Normalize to [0, 1)
+            if self.current_clock >= 1.0:
+                self.current_clock -= 1.0
+
+        # Calculate outputs
+        clock_rad = 2 * np.pi * self.current_clock
+        val_sin = np.sin(clock_rad)
+        val_cos = np.cos(clock_rad)
+
+        # Advance counters
+        self.steps_in_phase += 1
+        if self.steps_in_phase >= phase.steps:
+            # Move to next phase
+            self.steps_in_phase = 0
+            self.current_phase_idx = (self.current_phase_idx + 1) % len(self.phases)
+
+        return float(val_sin), float(val_cos)
 
 class BcInferenceNode(Node):
     def __init__(self):
@@ -48,6 +130,9 @@ class BcInferenceNode(Node):
         self._joint_velocities: Optional[List[float]] = None
         self._p_W_l_foot_z: Optional[float] = None
         self._p_W_r_foot_z: Optional[float] = None
+
+        self._clock_gen = ClockGenerator()
+        self.get_logger().info("Clock Generator Initialized.")
 
         # === 2. Load Normalization Parameters ===
         self._obs_mean = np.array(PreprocessCfg.OBS_MEAN, dtype=np.float32)
@@ -64,7 +149,7 @@ class BcInferenceNode(Node):
         # Determine dimensions from Config
         self._obs_dim = self._obs_mean.shape[0]
         self._act_dim = self._action_scales.shape[0]
-        self._input_dim = (self._obs_dim * OBS_HISTORY_LEN) + (self._act_dim * ACTION_HISTORY_LEN)
+        self._input_dim = (self._obs_dim * OBS_HISTORY_LEN) + (self._act_dim * ACTION_HISTORY_LEN) + CLOCK_DIM
         self._model = self._load_model(input_dim=self._input_dim)
 
         self._obs_history = deque(maxlen=OBS_HISTORY_LEN)
@@ -174,18 +259,21 @@ class BcInferenceNode(Node):
         # 1. Check if all sensor data is ready
         if not self._check_states_ready():
             return
-        # 2. Compose Observation
-        raw_obs_t = self._get_current_raw_state()
-        # 3. Normalize Observation
-        norm_obs_t = self._normalize_obs(raw_obs_t)
+
+        # 2. Get Normalized Sensor Data
+        raw_sensor_obs = self._get_current_raw_state()
+        norm_sensor_obs = self._normalize_obs(raw_sensor_obs)
+
+        self._update_history_buffers(norm_sensor_obs)
         
-        # 4. Update History Buffer
-        self._update_history_buffers(norm_obs_t)
+        # 3. [NEW] Generate Clock Data
+        clock_sin, clock_cos = self._clock_gen.step()
+        clock_obs = np.array([clock_sin, clock_cos], dtype=np.float32)
         
-        # 5. Construct Stacked Input Vector [S_t-2, S_t-1, S_t, A_t-2, A_t-1]
-        input_vector = self._construct_model_input()
+        # 6. Construct Stacked Input Vector
+        input_vector = self._construct_model_input(clock_obs)
         
-        # 6. Model Inference
+        # 7. Model Inference
         # input_vector shape is (1, input_dim)
         obs_tensor = torch.as_tensor(input_vector, dtype=torch.float32, device=self.device).unsqueeze(0)
         
@@ -193,11 +281,11 @@ class BcInferenceNode(Node):
             norm_action_pred = self._model(obs_tensor).squeeze(0).cpu().numpy()
         self._act_history.append(norm_action_pred)
 
-        # 7. Scale Actions to Real World
+        # 8. Scale Actions to Real World
         real_actions = self._scale_actions(norm_action_pred)
-        self._log_predict_actions(real_actions)
+        self._log_predict_actions(real_actions, clock_sin, clock_cos)
         
-        # 8. Publish
+        # 9. Publish
         self._publish_actions(real_actions)
 
     # ================= Helper Functions =================
@@ -230,20 +318,21 @@ class BcInferenceNode(Node):
         raw_obs = np.asarray(obs_list, dtype=np.float32)
         return raw_obs
 
-    def _update_history_buffers(self, current_norm_obs: np.ndarray) -> None:
+    def _update_history_buffers(self, current_pure_sensor_obs: np.ndarray) -> None:
+        """Updates the observation history buffer with pure sensor data."""
         if len(self._obs_history) == 0:
-            self._obs_history.append(current_norm_obs)
-            self._obs_history.append(current_norm_obs)
-            zeros_act = np.zeros(self._act_dim, dtype=np.float32)
-            self._act_history.append(zeros_act)
-            self._act_history.append(zeros_act)
+            for _ in range(OBS_HISTORY_LEN - 1):
+                self._obs_history.append(current_pure_sensor_obs)
             
-        self._obs_history.append(current_norm_obs)
+            zeros_act = np.zeros(self._act_dim, dtype=np.float32)
+            for _ in range(ACTION_HISTORY_LEN):
+                self._act_history.append(zeros_act)
+        self._obs_history.append(current_pure_sensor_obs)
 
-    def _construct_model_input(self) -> np.ndarray:
+    def _construct_model_input(self, current_clock: np.ndarray) -> np.ndarray:
         s_list = list(self._obs_history)
         a_list = list(self._act_history)
-        input_vector = np.concatenate(s_list + a_list, axis=0)
+        input_vector = np.concatenate(s_list + a_list + [current_clock], axis=0)
         
         return input_vector
 
@@ -310,7 +399,7 @@ class BcInferenceNode(Node):
         msg_right.data = [float(x) for x in targets[6:11]]
         self._right_joint_target_pub_.publish(msg_right)
     
-    def _log_predict_actions(self, real_actions: np.ndarray) -> None:
+    def _log_predict_actions(self, real_actions: np.ndarray, sin_val: float, cos_val: float) -> None:
         self._step_counter += 1
         if self._step_counter % 100 == 0:
             action_str = np.array2string(real_actions, precision=3, suppress_small=True)
