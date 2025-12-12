@@ -49,6 +49,8 @@ class BipedMotionPlannerNode(Node):
         self.swing_side: LegSide = "left"
         self.support_side: SupportSide = "right"
         self._phase_start_time: float = 0.0
+        self._clock_sin: float = np.sin(2.0 * np.pi * 0.75)
+        self._clock_cos: float = np.cos(2.0 * np.pi * 0.75)
 
         self._current_phase: Phase = Phase.INIT_TO_SS
         self._total_step_idx: int = 0
@@ -164,6 +166,11 @@ class BipedMotionPlannerNode(Node):
             '/biped/swing_target',
             10
         )
+        self._clock_sin_cos_publisher_ = self.create_publisher(
+            Float64MultiArray,
+            '/biped/clock_sin_cos',
+            10
+        )
 
     def _baselink_translate_callback(self, msg: Vector3) -> None:
         self._p_W["baselink"] = msg
@@ -235,6 +242,11 @@ class BipedMotionPlannerNode(Node):
         msg.z = float(self._next_swing_position[2])
         self._swing_target_publisher_.publish(msg)
 
+    def _pub_clock_sin_cos(self) -> None:
+        msg = Float64MultiArray()
+        msg.data = [self._clock_sin, self._clock_cos]
+        self._clock_sin_cos_publisher_.publish(msg)
+
     def _on_timer(self) -> None:
         self._on_timer_impl()
 
@@ -251,6 +263,7 @@ class BipedMotionPlannerNode(Node):
         self._pub_swing_side()
         self._pub_stance_joint_targets()
         self._pub_swing_target()
+        self._pub_clock_sin_cos()
         self._total_step_idx += 1
         self._phase_step_idx += 1
         if next_phase is not None or self._phase_budget_reached():
@@ -289,6 +302,7 @@ class BipedMotionPlannerNode(Node):
         self.init_to_ss_manager.set_support_side(self.support_side)
         self.init_to_ss_manager.set_swing_side(self.swing_side)
         self.init_to_ss_manager.build_swing_func(self._p_W)
+        self._update_clock(0.0)
         self._start_phase_timer()
 
     def _step_init_to_ss(self) -> Optional[Phase]:
@@ -298,6 +312,7 @@ class BipedMotionPlannerNode(Node):
         self._next_stance_joint_pose = [0.0]*Config.JOINT_NUMS
         self._next_swing_position = self.init_to_ss_manager.calc_swing_position(
             s_value)
+        self._update_clock(s_value)
         # TODO check if reached the target
         return None
 
@@ -309,6 +324,7 @@ class BipedMotionPlannerNode(Node):
         self.ss_to_ds_manager.set_support_side(self.support_side)
         self.ss_to_ds_manager.build_stance_func()
         self.ss_to_ds_manager.build_swing_func(self._p_W, self._q_W)
+        self._update_clock(0.0)
         self._start_phase_timer()
 
     def _step_ss_to_ds(self) -> Optional[Phase]:
@@ -319,6 +335,7 @@ class BipedMotionPlannerNode(Node):
             s_value)
         self._next_swing_position = self.ss_to_ds_manager.calc_swing_position(
             s_value)
+        self._update_clock(s_value)
         # TODO check if reached the target
         return None
 
@@ -335,6 +352,7 @@ class BipedMotionPlannerNode(Node):
         elif self.stance_side == "right":
             self.ds_to_ss_manager.build_stance_func(self._right_joint_targets)
         self.ds_to_ss_manager.build_swing_func(self._p_W, self._q_W)
+        self._update_clock(0.0)
         self._start_phase_timer()
 
     def _step_ds_to_ss(self) -> Optional[Phase]:
@@ -345,6 +363,7 @@ class BipedMotionPlannerNode(Node):
             s_value)
         self._next_swing_position = self.ds_to_ss_manager.calc_swing_position(
             s_value)
+        self._update_clock(s_value)
         # TODO check if reached the target
         return None
 
@@ -361,6 +380,26 @@ class BipedMotionPlannerNode(Node):
         # TODO support side switch logic
         self.support_side = self.stance_side
 
+    def _update_clock(self, s_value: float) -> None:
+        phase_offset = self._cal_s_value_phase_offset()
+        clock = phase_offset + s_value / 4.0
+        self._clock_sin = np.sin(2.0 * np.pi * clock)
+        self._clock_cos = np.cos(2.0 * np.pi * clock)
+
+    def _cal_s_value_phase_offset(self) -> float:
+        phase_offset: float = 0.0
+        if self._current_phase == Phase.INIT_TO_SS:
+            phase_offset = 0.75
+        elif self._current_phase == Phase.SS_TO_DS and self.swing_side == "left":
+            phase_offset = 0.0
+        elif self._current_phase == Phase.DS_TO_SS and self.swing_side == "right":
+            phase_offset = 0.25
+        elif self._current_phase == Phase.SS_TO_DS and self.swing_side == "right":
+            phase_offset = 0.5
+        elif self._current_phase == Phase.DS_TO_SS and self.swing_side == "left":
+            phase_offset = 0.75
+        return phase_offset
+        
 
 def main(args=None):
     rclpy.init(args=args)
