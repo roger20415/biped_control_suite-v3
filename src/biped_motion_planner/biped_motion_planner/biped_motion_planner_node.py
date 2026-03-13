@@ -40,6 +40,11 @@ class PhaseHandlers:
 class BipedMotionPlannerNode(Node):
     def __init__(self):
         super().__init__('biped_motion_planner')
+        self.declare_parameter('launch_start_time_sec', float(time.monotonic()))
+        self._launch_start_time_sec = float(
+            self.get_parameter('launch_start_time_sec').value
+        )
+        self._fell_down: bool = False
         self._on_timer_impl = self._on_timer_bootstrap
         self._timer = self.create_timer(TIMER_PERIOD, self._on_timer)
         self.init_to_ss_manager = InitToSSManager()
@@ -54,6 +59,7 @@ class BipedMotionPlannerNode(Node):
 
         self._current_phase: Phase = Phase.INIT_TO_SS
         self._total_step_idx: int = 0
+        self._completed_step_count: int = 0
         self._phase_step_idx: int = 0
         self._phase_duration_time: float = 0.0
         self._phase_time_budget: Dict[Phase, float] = {
@@ -174,6 +180,7 @@ class BipedMotionPlannerNode(Node):
 
     def _baselink_translate_callback(self, msg: Vector3) -> None:
         self._p_W["baselink"] = msg
+        self._check_fall_down(msg.z)
 
     def _l_foot_translate_callback(self, msg: Vector3) -> None:
         self._p_W["l_foot"] = msg
@@ -257,6 +264,8 @@ class BipedMotionPlannerNode(Node):
         self._on_timer_impl = self._on_timer_main
 
     def _on_timer_main(self) -> None:
+        if self._fell_down:
+            return
         next_phase = self._handlers[self._current_phase].on_step()
         self._pub_support_side()
         self._pub_stance_side()
@@ -379,6 +388,21 @@ class BipedMotionPlannerNode(Node):
         self.stance_side, self.swing_side = self.swing_side, self.stance_side
         # TODO support side switch logic
         self.support_side = self.stance_side
+        self._completed_step_count += 1
+
+    def _check_fall_down(self, baselink_z: float) -> None:
+        if self._fell_down:
+            return
+        if baselink_z < Config.FALL_DOWN_BASELINK_Z_THRESHOLD:
+            self._fell_down = True
+            self._timer.cancel()
+            elapsed_sec = max(0.0, time.monotonic() - self._launch_start_time_sec)
+            result_message = (
+                f'Robot fell down. Elapsed time: {elapsed_sec:.3f} s, '
+                f'steps: {self._completed_step_count}'
+            )
+            self.get_logger().error(result_message)
+            print(result_message)
 
     def _update_clock(self, s_value: float) -> None:
         phase_offset = self._cal_s_value_phase_offset()

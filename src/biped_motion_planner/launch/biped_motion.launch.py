@@ -3,6 +3,8 @@ Launch file to start biped_motion_planner nodes sequentially.
 This script utilizes the ROS 2 launch system with TimerActions to 
 initialize multiple nodes with a strict 0.5-second delay between each.
 """
+import time
+
 from launch import LaunchDescription
 from launch_ros.actions import Node
 from launch.actions import TimerAction
@@ -15,6 +17,8 @@ def generate_launch_description():
         LaunchDescription: The launch description containing the nodes and timers.
     """
     
+    launch_start_time_sec = time.monotonic()
+
     # Define the nodes
     stance_leg_node = Node(
         package='biped_motion_planner',
@@ -41,6 +45,7 @@ def generate_launch_description():
         package='biped_motion_planner',
         executable='biped_motion_planner_node',
         name='biped_motion_planner',
+        parameters=[{'launch_start_time_sec': launch_start_time_sec}],
         output='screen'
     )
 
