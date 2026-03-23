@@ -1,5 +1,6 @@
 import math
 import os
+import time
 import rclpy
 import torch
 import numpy as np
@@ -15,6 +16,7 @@ from sensor_msgs.msg import JointState
 
 from .actor_bc import ActorBC
 from .preprocess_cfg import PreprocessCfg
+from biped_motion_planner.config import Config as MotionPlannerConfig
 
 # Configs (Keep consistent with Collector)
 TIMER_PERIOD_SEC = 0.05  # 20 Hz
@@ -121,6 +123,11 @@ class BcInferenceNode(Node):
     def __init__(self):
         super().__init__('bc_inference_node')
         self._step_counter = 0
+        self._run_start_time_sec = time.monotonic()
+        self._elapsed_time_sec: Optional[float] = None
+        self._completed_step_count = 0
+        self._fell_down = False
+        self._last_clock_phase_idx: Optional[int] = None
 
         # === 1. State Variables (Same as Collector) ===
         self._p_W_baselink_z: Optional[float] = None
@@ -233,6 +240,7 @@ class BcInferenceNode(Node):
     # ================= Callbacks (State Updates) =================
     def _baselink_translate_callback(self, msg: Vector3) -> None:
         self._p_W_baselink_z = msg.z
+        self._check_fall_down(msg.z)
 
     def _baselink_quat_callback(self, msg: Quaternion) -> None:
         self._q_W_baselink = msg
@@ -256,6 +264,8 @@ class BcInferenceNode(Node):
 
     # ================= Main Inference Loop =================
     def on_inference_step(self) -> None:
+        if self._fell_down:
+            return
         # 1. Check if all sensor data is ready
         if not self._check_states_ready():
             return
@@ -268,6 +278,7 @@ class BcInferenceNode(Node):
         
         # 3. [NEW] Generate Clock Data
         clock_sin, clock_cos = self._clock_gen.step()
+        self._update_completed_step_count()
         clock_obs = np.array([clock_sin, clock_cos], dtype=np.float32)
         
         # 6. Construct Stacked Input Vector
@@ -366,6 +377,31 @@ class BcInferenceNode(Node):
 
     def _check_foot_contact(self, foot_z: float) -> float:
         return 1.0 if foot_z < FOOT_CONTACT_THRESHOLD else -1.0
+
+    def _update_completed_step_count(self) -> None:
+        current_phase_idx = self._clock_gen.current_phase_idx
+        if self._last_clock_phase_idx is None:
+            self._last_clock_phase_idx = current_phase_idx
+            return
+
+        if current_phase_idx != self._last_clock_phase_idx:
+            if current_phase_idx in (3, 7):
+                self._completed_step_count += 1
+            self._last_clock_phase_idx = current_phase_idx
+
+    def _check_fall_down(self, baselink_z: float) -> None:
+        if self._fell_down:
+            return
+        if baselink_z < MotionPlannerConfig.FALL_DOWN_BASELINK_Z_THRESHOLD:
+            self._fell_down = True
+            self._elapsed_time_sec = max(0.0, time.monotonic() - self._run_start_time_sec)
+            self._timer.cancel()
+            result_message = (
+                f'Robot fell down. Elapsed time: {self._elapsed_time_sec:.3f} s, '
+                f'steps: {self._completed_step_count}'
+            )
+            self.get_logger().error(result_message)
+            print(result_message)
     
     def _normalize_obs(self, raw_obs: np.ndarray) -> np.ndarray:
         if raw_obs.shape[0] != self._obs_mean.shape[0]:
