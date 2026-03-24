@@ -222,7 +222,7 @@ class CounterweightControlNode(Node):
         else:
             sacrum_target = self._sacrum_target + step
         sacrum_target = float(
-            np.clip(sacrum_target, Config.SACRUM_MIN_TARGET, Config.SACRUM_MAX_TARGET))
+            np.clip(sacrum_target, Config.SACRUM_MIN_DEG, Config.SACRUM_MAX_DEG))
         return sacrum_target
 
     def _baselink_quat_callback(self, msg: Quaternion) -> None:

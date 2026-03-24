@@ -32,8 +32,8 @@ class Config:
     FOOT_MAX_DEG: float = 90.0
     FOOT_MIN_DEG: float = -90.0
 
-    SACRUM_MAX_TARGET: float = 0.009
-    SACRUM_MIN_TARGET: float = -0.009
+    SACRUM_MAX_DEG: float = 40.0
+    SACRUM_MIN_DEG: float = -40.0
 
     # default joint angles (in degrees)
     HIP_THETA_UW: float = 270.0
@@ -43,16 +43,16 @@ class Config:
     ORIGIN_R_TARGET = Vector3(x=0.002, y=-0.00325, z=0.0)
 
     # link mass
-    BASELINK_MASS: float = 0.00073
-    BACK_MASS: float = 0.00276
-    SACRUM_MASS: float = 0.00013
+    BASELINK_MASS: float = 0.0002
+    BACK_MASS: float = 0.00519
+    SACRUM_MASS: float = 0.00222
     HIP_MASS: float = 0.00009
     THIGH_MASS: float = 0.0005
     CALF_MASS: float = 0.00029
     ANKLE_MASS: float = 0.00009
     FOOT_MASS: float = 0.00046
 
-    FALL_DOWN_BASELINK_Z_THRESHOLD: float = 0.011  # in meters
+    FALL_DOWN_BASELINK_Z_THRESHOLD: float = 0.017  # in meters
 
     FOOT_LINK_X_SEMI_LENGTH: float = 0.002  # in meters
 
