@@ -45,6 +45,9 @@ class CounterweightControlNode(Node):
         self._phase: int = 1  # 1: Parallelogram, 2: Transition, 3: Pelvic Tilt
         self._transition_alpha: float = 0.0  # 0.0 代表完全平行四邊形，1.0 代表完全骨盆傾斜
         self._stable_count: int = 0
+        
+        # 【提示】新增：軀幹 (Sacrum) 獨立的旋轉目標角度
+        self._sacrum_target: float = 0.0  
         # ------------------------
 
         self._p_W_l_foot: Optional[NDArray[np.float64]] = None
@@ -127,15 +130,15 @@ class CounterweightControlNode(Node):
 
         self._timer = self.create_timer(PUBLISH_PERIOD, self._timer_callback)
 
-    def _pub_counterweight_pos(self, lean_angle: float, alpha: float) -> None:
-        sacrum_roll = -lean_angle * alpha
-        
+    def _pub_counterweight_pos(self, sacrum_angle: float) -> None:
+        """Publish the independent target joint positions for the counterweight (sacrum)."""
         msg = Float64MultiArray()
-        msg.data = [0.0, float(sacrum_roll)] 
+        # 【提示】這裡直接發布獨立計算好的 sacrum_angle
+        msg.data = [0.0, float(sacrum_angle)] 
         self._counterweight_publisher_.publish(msg)
 
     def _pub_leg_targets(self, lean_angle: float, support_side: str, alpha: float) -> None:
-
+        """Publish leg joint targets to transition from parallelogram to pelvic tilt."""
         left_msg = Float64MultiArray()
         right_msg = Float64MultiArray()
         
@@ -177,6 +180,7 @@ class CounterweightControlNode(Node):
                 self._phase = 1
                 self._transition_alpha = 0.0
                 self._stable_count = 0
+                self._sacrum_target = 0.0
             else:
                 self.get_logger().error(
                     f"Invalid support side: {msg.data}. Keeping previous: {self._support_side}.")
@@ -255,9 +259,12 @@ class CounterweightControlNode(Node):
             
             err_signed = float(np.dot(vec_S_com_to_support[:2], vec_S_sacrum_proj_norm[:2]))
             
+            # 【核心】重心追蹤邏輯永遠保持運行
             self._lean_target = self._calc_lean_target(err_signed)
+            
             if support_side in ("left", "right"):
                 if self._phase == 1:
+                    self._sacrum_target = 0.0
                     if abs(err_signed) < LEAN_MOVE_THRESHOLD:
                         self._stable_count += 1
                         if self._stable_count >= 10:
@@ -266,24 +273,40 @@ class CounterweightControlNode(Node):
                     else:
                         self._stable_count = 0
                 
-                elif self._phase == 2:
-                    self._transition_alpha += 0.02
-                    if self._transition_alpha >= 1.0:
-                        self._transition_alpha = 1.0
-                        self._phase = 3
-                        self.get_logger().info("Stage 2 Complete. Fully in Pelvic Tilt mode.")
+                elif self._phase == 2 or self._phase == 3:
+                    if self._phase == 2:
+                        # 【提示】調降過渡速度以維持重心穩定 (原0.02 -> 0.01)
+                        self._transition_alpha += 0.01
+                        MAX_ALPHA = 1.0
+                        if self._transition_alpha >= MAX_ALPHA:
+                            self._transition_alpha = MAX_ALPHA
+                            self._phase = 3
+                            self.get_logger().info("Stage 2 Complete. Fully in Pelvic Tilt mode.")
+
+                    # --- 【新邏輯】推動 Sacrum 往反方向嘗試回直 ---
+                    # 【需要修改的地方】這裡設定軀幹最大只回正 15 度，避免重心被扯離太遠
+                    MAX_SACRUM_COMPENSATION = float(np.deg2rad(15.0))
+                    
+                    # 【需要修改的地方】決定反向的符號。若實際跑起來軀幹轉錯邊，請將 -1.0 與 1.0 對調
+                    sacrum_direction = -1.0 if support_side == "left" else 1.0
+                    
+                    # 隨著 alpha 增加，軀幹逐漸挺直
+                    self._sacrum_target = sacrum_direction * MAX_SACRUM_COMPENSATION * self._transition_alpha
+                    # ------------------------------------------------
             else:
                 self._phase = 1
                 self._transition_alpha = 0.0
+                self._sacrum_target = 0.0
 
         except Exception as e:
             self.get_logger().error(f"Timer step failed: {e}")
             return
             
         phase_str = "Phase 1: Parallelogram" if self._phase == 1 else ("Phase 2: Transition" if self._phase == 2 else "Phase 3: Pelvic Tilt")
-        self.get_logger().info(f"[{phase_str}] Lean: {np.rad2deg(self._lean_target):.2f}° | Alpha: {self._transition_alpha:.2f}") 
+        self.get_logger().info(f"[{phase_str}] Baselink Lean: {np.rad2deg(self._lean_target):.2f}° | Sacrum Roll: {np.rad2deg(self._sacrum_target):.2f}°") 
 
-        self._pub_counterweight_pos(self._lean_target, self._transition_alpha)
+        # 【提示】改為傳遞獨立的 _sacrum_target
+        self._pub_counterweight_pos(self._sacrum_target)
         self._pub_leg_targets(self._lean_target, support_side, self._transition_alpha)
 
     def _calc_lean_target(self, err_signed: float) -> float:
@@ -310,6 +333,7 @@ class CounterweightControlNode(Node):
             self._if_fall_down = True
             self._phase = 1
             self._transition_alpha = 0.0
+            self._sacrum_target = 0.0
         elif msg.z >= Config.FALL_DOWN_BASELINK_Z_THRESHOLD and self._if_fall_down:
             self.get_logger().info("Robot is back up.")
             self._lean_target = 0.0
