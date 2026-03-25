@@ -21,8 +21,7 @@ _COM_KEYS: tuple[str, ...] = (
     "l_foot", "r_foot",
 )
 # in meters
-# left to right foot distance 0.0065
-LEAN_MOVE_THRESHOLD: float = 0.0065/50
+LEAN_MOVE_THRESHOLD: float = 0.00065/50
 LEAN_MAX_ERR: float = 0.018  # error_signed value max limit
 LEAN_MIN_STEP: float = float(np.deg2rad(0.04))
 LEAN_MAX_STEP: float = float(np.deg2rad(1.0))
@@ -41,6 +40,12 @@ class CounterweightControlNode(Node):
         
         self._lean_target: float = 0.0
         self._if_fall_down: bool = False
+
+        # --- 狀態機與過渡參數 ---
+        self._phase: int = 1  # 1: Parallelogram, 2: Transition, 3: Pelvic Tilt
+        self._transition_alpha: float = 0.0  # 0.0 代表完全平行四邊形，1.0 代表完全骨盆傾斜
+        self._stable_count: int = 0
+        # ------------------------
 
         self._p_W_l_foot: Optional[NDArray[np.float64]] = None
         self._p_W_r_foot: Optional[NDArray[np.float64]] = None
@@ -122,21 +127,42 @@ class CounterweightControlNode(Node):
 
         self._timer = self.create_timer(PUBLISH_PERIOD, self._timer_callback)
 
-    def _pub_counterweight_pos(self, counterweight_pos) -> None:
-        """Publish the target joint positions for the counterweight (sacrum) - Now kept at 0.0."""
+    def _pub_counterweight_pos(self, lean_angle: float, alpha: float) -> None:
+        sacrum_roll = -lean_angle * alpha
+        
         msg = Float64MultiArray()
-        msg.data = [float(i) for i in counterweight_pos]
+        msg.data = [0.0, float(sacrum_roll)] 
         self._counterweight_publisher_.publish(msg)
 
-    def _pub_leg_targets(self, lean_angle: float) -> None:
-        hip_cmd = lean_angle
-        foot_cmd = lean_angle
+    def _pub_leg_targets(self, lean_angle: float, support_side: str, alpha: float) -> None:
 
         left_msg = Float64MultiArray()
         right_msg = Float64MultiArray()
         
-        left_msg.data = [hip_cmd, 0.0, 0.0, 0.0, foot_cmd]
-        right_msg.data = [hip_cmd, 0.0, 0.0, 0.0, foot_cmd]
+        left_hip, left_foot = 0.0, 0.0
+        right_hip, right_foot = 0.0, 0.0
+
+        if support_side == "left":
+            left_hip = lean_angle * (1.0 - 2.0 * alpha)
+            left_foot = lean_angle * (1.0 - alpha)
+            right_hip = lean_angle * (1.0 - 2.0 * alpha)
+            right_foot = lean_angle * (1.0 - alpha)
+            
+        elif support_side == "right":
+            right_hip = lean_angle * (1.0 - 2.0 * alpha)
+            right_foot = lean_angle * (1.0 - alpha)
+            
+            left_hip = lean_angle * (1.0 - 2.0 * alpha)
+            left_foot = lean_angle * (1.0 - alpha)
+            
+        else:
+            left_hip = lean_angle * (1.0 - alpha)
+            left_foot = lean_angle * (1.0 - alpha)
+            right_hip = lean_angle * (1.0 - alpha)
+            right_foot = lean_angle * (1.0 - alpha)
+
+        left_msg.data = [left_hip, 0.0, 0.0, 0.0, left_foot]
+        right_msg.data = [right_hip, 0.0, 0.0, 0.0, right_foot]
         
         self._left_joint_target_publisher_.publish(left_msg)
         self._right_joint_target_publisher_.publish(right_msg)
@@ -147,6 +173,10 @@ class CounterweightControlNode(Node):
                 f"Switching support side from {self._support_side} to {msg.data}.")
             if msg.data in ("left", "right", "mid"):
                 self._support_side = msg.data
+                # 當支撐腳切換時，重置所有階段狀態
+                self._phase = 1
+                self._transition_alpha = 0.0
+                self._stable_count = 0
             else:
                 self.get_logger().error(
                     f"Invalid support side: {msg.data}. Keeping previous: {self._support_side}.")
@@ -224,20 +254,40 @@ class CounterweightControlNode(Node):
             vec_S_sacrum_proj_norm = self._calc_vec_S_sacrum_proj_norm()
             
             err_signed = float(np.dot(vec_S_com_to_support[:2], vec_S_sacrum_proj_norm[:2]))
-
+            
             self._lean_target = self._calc_lean_target(err_signed)
+            if support_side in ("left", "right"):
+                if self._phase == 1:
+                    if abs(err_signed) < LEAN_MOVE_THRESHOLD:
+                        self._stable_count += 1
+                        if self._stable_count >= 10:
+                            self._phase = 2
+                            self.get_logger().info("CoM stabilized. Transitioning to Pelvic Tilt (Stage 2)...")
+                    else:
+                        self._stable_count = 0
+                
+                elif self._phase == 2:
+                    self._transition_alpha += 0.02
+                    if self._transition_alpha >= 1.0:
+                        self._transition_alpha = 1.0
+                        self._phase = 3
+                        self.get_logger().info("Stage 2 Complete. Fully in Pelvic Tilt mode.")
+            else:
+                self._phase = 1
+                self._transition_alpha = 0.0
 
         except Exception as e:
             self.get_logger().error(f"Timer step failed: {e}")
             return
             
-        self.get_logger().info(f"Parallelogram Mode | Lean Angle: {np.rad2deg(self._lean_target):.2f}°") 
+        phase_str = "Phase 1: Parallelogram" if self._phase == 1 else ("Phase 2: Transition" if self._phase == 2 else "Phase 3: Pelvic Tilt")
+        self.get_logger().info(f"[{phase_str}] Lean: {np.rad2deg(self._lean_target):.2f}° | Alpha: {self._transition_alpha:.2f}") 
 
-        self._pub_counterweight_pos([0.0, 0.0])
-        self._pub_leg_targets(self._lean_target)
+        self._pub_counterweight_pos(self._lean_target, self._transition_alpha)
+        self._pub_leg_targets(self._lean_target, support_side, self._transition_alpha)
 
     def _calc_lean_target(self, err_signed: float) -> float:
-        """Calculate the target lean angle for the legs (parallelogram) based on CoM error."""
+        """Calculate the target lean magnitude based on CoM error."""
         if abs(err_signed) < LEAN_MOVE_THRESHOLD:
             return self._lean_target
 
@@ -258,6 +308,8 @@ class CounterweightControlNode(Node):
             self.get_logger().warn("Robot has fallen down! Resetting lean target.")
             self._lean_target = 0.0
             self._if_fall_down = True
+            self._phase = 1
+            self._transition_alpha = 0.0
         elif msg.z >= Config.FALL_DOWN_BASELINK_Z_THRESHOLD and self._if_fall_down:
             self.get_logger().info("Robot is back up.")
             self._lean_target = 0.0
@@ -308,7 +360,6 @@ def main(args=None):
         node.destroy_node()
         rclpy.shutdown()
         sys.exit(0)
-
 
 if __name__ == '__main__':
     main()
