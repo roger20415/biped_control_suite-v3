@@ -21,13 +21,12 @@ _COM_KEYS: tuple[str, ...] = (
     "l_foot", "r_foot",
 )
 # in meters
-# sacrum move range +-0.009
 # left to right foot distance 0.0065
-SACRUM_MOVE_THRESHOLD: float = 0.0065/50
-SACRUM_MAX_ERR: float = 0.018  # error_signed value max limit
-SACRUM_MIN_STEP: float = 0.0001
-SACRUM_MAX_STEP: float = 0.0035
-SACRUM_STEP_ALPHA: float = 0.8  # 0.5~1.5：<1 sensitive；>1 preserve
+LEAN_MOVE_THRESHOLD: float = 0.0065/50
+LEAN_MAX_ERR: float = 0.018  # error_signed value max limit
+LEAN_MIN_STEP: float = float(np.deg2rad(0.04))
+LEAN_MAX_STEP: float = float(np.deg2rad(1.0))
+LEAN_STEP_ALPHA: float = 0.8  # 0.5~1.5：<1 sensitive；>1 preserve
 
 PUBLISH_PERIOD: float = 0.05  # in seconds
 VALID_SUPPORT_SIDES: tuple[str, ...] = ("left", "right", "mid")
@@ -39,8 +38,10 @@ class CounterweightControlNode(Node):
         self._support_side: SupportSide = "undefined"
         self._p_W_joints_com: dict[str, NDArray[np.float64]] = {
             k: np.zeros(3, dtype=np.float64) for k in _COM_KEYS}
-        self._sacrum_target: float = 0.0
+        
+        self._lean_target: float = 0.0
         self._if_fall_down: bool = False
+
         self._p_W_l_foot: Optional[NDArray[np.float64]] = None
         self._p_W_r_foot: Optional[NDArray[np.float64]] = None
         self._q_W_l_foot: Optional[Quaternion] = None
@@ -108,12 +109,37 @@ class CounterweightControlNode(Node):
             qos_sensor
         )
 
+        self._left_joint_target_publisher_ = self.create_publisher(
+            Float64MultiArray,
+            '/biped/left_joint_target',
+            10
+        )
+        self._right_joint_target_publisher_ = self.create_publisher(
+            Float64MultiArray,
+            '/biped/right_joint_target',
+            10
+        )  # in rad
+
         self._timer = self.create_timer(PUBLISH_PERIOD, self._timer_callback)
 
     def _pub_counterweight_pos(self, counterweight_pos) -> None:
+        """Publish the target joint positions for the counterweight (sacrum) - Now kept at 0.0."""
         msg = Float64MultiArray()
         msg.data = [float(i) for i in counterweight_pos]
         self._counterweight_publisher_.publish(msg)
+
+    def _pub_leg_targets(self, lean_angle: float) -> None:
+        hip_cmd = lean_angle
+        foot_cmd = lean_angle
+
+        left_msg = Float64MultiArray()
+        right_msg = Float64MultiArray()
+        
+        left_msg.data = [hip_cmd, 0.0, 0.0, 0.0, foot_cmd]
+        right_msg.data = [hip_cmd, 0.0, 0.0, 0.0, foot_cmd]
+        
+        self._left_joint_target_publisher_.publish(left_msg)
+        self._right_joint_target_publisher_.publish(right_msg)
 
     def _support_side_callback(self, msg: String) -> None:
         if msg.data != self._support_side:
@@ -194,48 +220,47 @@ class CounterweightControlNode(Node):
             return
 
         try:
-            vec_S_com_to_support = self._calc_vec_S_com_to_support(
-                support_side)
+            vec_S_com_to_support = self._calc_vec_S_com_to_support(support_side)
             vec_S_sacrum_proj_norm = self._calc_vec_S_sacrum_proj_norm()
+            
+            err_signed = float(np.dot(vec_S_com_to_support[:2], vec_S_sacrum_proj_norm[:2]))
+
+            self._lean_target = self._calc_lean_target(err_signed)
+
         except Exception as e:
             self.get_logger().error(f"Timer step failed: {e}")
             return
-        self._sacrum_target = self._calc_sacrum_target(
-            vec_S_com_to_support, vec_S_sacrum_proj_norm)
-        self._pub_counterweight_pos([0.0, self._sacrum_target])
+            
+        self.get_logger().info(f"Parallelogram Mode | Lean Angle: {np.rad2deg(self._lean_target):.2f}°") 
 
-    def _calc_sacrum_target(self, vec_S_com_to_support: NDArray[np.float64], vec_S_sacrum_proj_norm: NDArray[np.float64]) -> float:
-        err_signed = float(
-            np.dot(vec_S_com_to_support[:2], vec_S_sacrum_proj_norm[:2]))
-        
-        # deadband
-        if abs(err_signed) < SACRUM_MOVE_THRESHOLD:
-            return self._sacrum_target
-        
-        # normalize error sign to [0, 1]
-        mag = abs(err_signed) / SACRUM_MAX_ERR
+        self._pub_counterweight_pos([0.0, 0.0])
+        self._pub_leg_targets(self._lean_target)
+
+    def _calc_lean_target(self, err_signed: float) -> float:
+        """Calculate the target lean angle for the legs (parallelogram) based on CoM error."""
+        if abs(err_signed) < LEAN_MOVE_THRESHOLD:
+            return self._lean_target
+
+        error_sign = float(np.sign(err_signed))
+        mag = abs(err_signed) / LEAN_MAX_ERR
         mag = np.clip(mag, 0.0, 1.0)
+        
+        step = LEAN_MIN_STEP + (LEAN_MAX_STEP - LEAN_MIN_STEP) * (mag ** LEAN_STEP_ALPHA)
 
-        step = SACRUM_MIN_STEP + (SACRUM_MAX_STEP - SACRUM_MIN_STEP) * (mag ** SACRUM_STEP_ALPHA)
-        if err_signed > 0:
-            sacrum_target = self._sacrum_target - step
-        else:
-            sacrum_target = self._sacrum_target + step
-        sacrum_target = float(
-            np.clip(sacrum_target, Config.SACRUM_MIN_DEG, Config.SACRUM_MAX_DEG))
-        return sacrum_target
+        lean_target = self._lean_target - error_sign * step
+        return lean_target
 
     def _baselink_quat_callback(self, msg: Quaternion) -> None:
         self._q_W_baselink = msg
 
     def _baselink_translate_callback(self, msg: Vector3) -> None:
         if (msg.z < Config.FALL_DOWN_BASELINK_Z_THRESHOLD) and not self._if_fall_down:
-            self.get_logger().warn("Robot has fallen down! Clear and init sacrum target")
-            self._sacrum_target = 0.0
+            self.get_logger().warn("Robot has fallen down! Resetting lean target.")
+            self._lean_target = 0.0
             self._if_fall_down = True
         elif msg.z >= Config.FALL_DOWN_BASELINK_Z_THRESHOLD and self._if_fall_down:
             self.get_logger().info("Robot is back up.")
-            self._sacrum_target = 0.0
+            self._lean_target = 0.0
             self._if_fall_down = False
 
     def _l_foot_translate_callback(self, msg: Vector3) -> None:
