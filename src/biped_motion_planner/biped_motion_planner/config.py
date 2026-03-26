@@ -43,9 +43,9 @@ class Config:
     ORIGIN_R_TARGET = Vector3(x=0.002, y=-0.00325, z=0.0)
 
     # link mass
-    BASELINK_MASS: float = 0.0002
-    BACK_MASS: float = 0.00519
-    SACRUM_MASS: float = 0.00222
+    BASELINK_MASS: float = 0.0012584
+    BACK_MASS: float = 0.00333526
+    SACRUM_MASS: float = 0.00142664
     HIP_MASS: float = 0.00009
     THIGH_MASS: float = 0.0005
     CALF_MASS: float = 0.00029
