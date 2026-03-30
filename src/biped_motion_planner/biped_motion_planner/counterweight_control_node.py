@@ -23,14 +23,14 @@ _COM_KEYS: tuple[str, ...] = (
 # in meters
 ERR_MAX_ERR: float = 45/10000  # error_signed value max limit
 LEAN_MOVE_THRESHOLD: float = 0.1/10000
-SACRUM_MOVE_THRESHOLD: float = 3/10000
+SACRUM_MOVE_THRESHOLD: float = 0.1/10000
 LEAN_MIN_STEP: float = float(np.deg2rad(0.04))
 LEAN_MAX_STEP: float = float(np.deg2rad(1.0))
 LEAN_STEP_ALPHA: float = 0.8  # 0.5~1.5：<1 sensitive；>1 preserve
 
 SACRUM_MIN_STEP: float = float(np.deg2rad(0.04))
 SACRUM_MAX_STEP: float = float(np.deg2rad(3.0))
-SACRUM_STEP_ALPHA: float = 1.2  # 0.5~1.5：<1 sensitive；>1 preserve
+SACRUM_STEP_ALPHA: float = 1.5  # 0.5~1.5：<1 sensitive；>1 preserve
 
 TRANSITION_ALPHA_INCREMENT: float = 0.02  # Increment for transition alpha per timer tick
 MAX_ALPHA = 1.0
@@ -38,6 +38,12 @@ MAX_ALPHA = 1.0
 PUBLISH_PERIOD: float = 0.05  # in seconds
 VALID_SUPPORT_SIDES: tuple[str, ...] = ("left", "right", "mid")
 
+
+SWING_LIFT_HIP_PITCH_MAG: float = float(np.deg2rad(-25.0))   # Thigh lift magnitude
+SWING_LIFT_KNEE_MAG: float = float(np.deg2rad(50.0))        # Calf bend magnitude
+SWING_LIFT_ANKLE_PITCH_MAG: float = float(np.deg2rad(-25.0)) # Ankle compensation magnitude
+SWING_ABDUCT_HIP_ROLL_MAG: float = float(np.deg2rad(35.0))  # Hip roll abduction magnitude
+PHASE3_TICKS_PER_STAGE: int = int(2.0 / PUBLISH_PERIOD)     # 10 ticks (0.5s) per stage
 
 class CounterweightControlNode(Node):
     def __init__(self):
@@ -60,6 +66,10 @@ class CounterweightControlNode(Node):
         self._q_W_l_foot: Optional[Quaternion] = None
         self._q_W_r_foot: Optional[Quaternion] = None
         self._q_W_baselink: Optional[Quaternion] = None
+
+        self._phase3_tick: int = 0
+        self._phase3_cycle: int = 0
+        self._swing_offsets: list[float] = [0.0, 0.0, 0.0, 0.0]  # [hip_roll, hip_pitch, knee, ankle_pitch]
 
         qos_sensor = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -141,6 +151,10 @@ class CounterweightControlNode(Node):
         self._counterweight_publisher_.publish(msg)
 
     def _pub_leg_targets(self, lean_angle: float, support_side: str, alpha: float) -> None:
+        """
+        Calculates and publishes the joint targets for both legs.
+        Applies swing leg animation offsets to the non-supporting leg during Phase 3.
+        """
         left_msg = Float64MultiArray()
         right_msg = Float64MultiArray()
         
@@ -152,15 +166,29 @@ class CounterweightControlNode(Node):
             left_foot = lean_angle * (1.0 - alpha)
             right_hip = lean_angle * (1.0 - 2.0 * alpha)
             right_foot = lean_angle * (1.0 - alpha)
-            
         else:
             left_hip = lean_angle * (1.0 - alpha)
             left_foot = lean_angle * (1.0 - alpha)
             right_hip = lean_angle * (1.0 - alpha)
             right_foot = lean_angle * (1.0 - alpha)
 
-        left_msg.data = [left_hip, 0.0, 0.0, 0.0, left_foot]
-        right_msg.data = [right_hip, 0.0, 0.0, 0.0, right_foot]
+        l_data = [left_hip, 0.0, 0.0, 0.0, left_foot]
+        r_data = [right_hip, 0.0, 0.0, 0.0, right_foot]
+
+        # 中文標註：將動畫偏移量 (offsets) 疊加到非支撐腳上
+        if support_side == "right":
+            l_data[0] += self._swing_offsets[0]  # hip roll
+            l_data[1] += self._swing_offsets[1]  # hip pitch
+            l_data[2] += self._swing_offsets[2]  # knee
+            l_data[3] += self._swing_offsets[3]  # ankle pitch
+        elif support_side == "left":
+            r_data[0] += self._swing_offsets[0]  
+            r_data[1] += self._swing_offsets[1]  
+            r_data[2] += self._swing_offsets[2]  
+            r_data[3] += self._swing_offsets[3]  
+
+        left_msg.data = l_data
+        right_msg.data = r_data
         
         self._left_joint_target_publisher_.publish(left_msg)
         self._right_joint_target_publisher_.publish(right_msg)
@@ -256,6 +284,7 @@ class CounterweightControlNode(Node):
                 self._phase = 1
                 self._transition_alpha = 0.0
                 self._sacrum_target = 0.0
+                self._reset_phase3_anim()
 
             if self._phase == 1:
                 self._sacrum_target = 0.0
@@ -278,6 +307,7 @@ class CounterweightControlNode(Node):
 
             elif self._phase == 3:
                 self._sacrum_target = self._calc_sacrum_target(err_signed)
+                self._update_swing_leg_animation(support_side)
 
         except Exception as e:
             self.get_logger().error(f"Counterweight control Node timer step failed: {e}")
@@ -303,8 +333,10 @@ class CounterweightControlNode(Node):
         mag = abs(err_signed) / ERR_MAX_ERR
         mag = np.clip(mag, 0.0, 1.0)
         step = SACRUM_MIN_STEP + (SACRUM_MAX_STEP - SACRUM_MIN_STEP) * (mag ** SACRUM_STEP_ALPHA)
-        new_sacrum_target = self._sacrum_target + step*err_sign
-        return float(new_sacrum_target)
+        sacrum_target = self._sacrum_target + step*err_sign
+        sacrum_target = np.clip(sacrum_target, -np.deg2rad(Config.SACRUM_MAX_DEG), np.deg2rad(Config.SACRUM_MAX_DEG))
+
+        return float(sacrum_target)
 
     def _baselink_quat_callback(self, msg: Quaternion) -> None:
         self._q_W_baselink = msg
@@ -355,6 +387,71 @@ class CounterweightControlNode(Node):
             return vec_S_yB
         return vec_S_yB / vec_S_yB_length
 
+    def _reset_phase3_anim(self) -> None:
+        """
+        Resets the swing leg animation states and offsets.
+        """
+        self._phase3_tick = 0
+        self._phase3_cycle = 0
+        self._swing_offsets = [0.0, 0.0, 0.0, 0.0]
+
+    def _update_swing_leg_animation(self, support_side: str) -> None:
+        """
+        Updates the swing leg trajectory offsets during Phase 3 based on hardware joint limits and directions.
+        Generates a 4-stage smooth motion: Lift -> Abduct -> Return -> Put down.
+
+        Args:
+            support_side: The current supporting side ('left' or 'right').
+        """
+        stage = self._phase3_tick // PHASE3_TICKS_PER_STAGE
+        progress = (self._phase3_tick % PHASE3_TICKS_PER_STAGE) / float(PHASE3_TICKS_PER_STAGE)
+
+        # 中文標註：依據支撐腳來決定擺動腳是哪一側，並套用對應的正負號
+        if support_side == "right":  # 擺動左腳
+            p_sign, k_sign, a_sign = -1.0, 1.0, 1.0  # Thigh(-), Calf(+), Ankle(+)
+            r_sign = 1.0                             # Hip Roll(+)
+        elif support_side == "left": # 擺動右腳
+            p_sign, k_sign, a_sign = 1.0, -1.0, -1.0 # Thigh(+), Calf(-), Ankle(-)
+            r_sign = -1.0                            # Hip Roll(-)
+        else:
+            return
+
+        target_hip_pitch = p_sign * SWING_LIFT_HIP_PITCH_MAG
+        target_knee = k_sign * SWING_LIFT_KNEE_MAG
+        target_ankle_pitch = a_sign * SWING_LIFT_ANKLE_PITCH_MAG
+        target_hip_roll = r_sign * SWING_ABDUCT_HIP_ROLL_MAG
+
+        hip_roll, hip_pitch, knee, ankle_pitch = 0.0, 0.0, 0.0, 0.0
+
+        if stage == 0:  # 中文標註：階段 1 - 抬腳
+            hip_pitch = target_hip_pitch * progress
+            knee = target_knee * progress
+            ankle_pitch = target_ankle_pitch * progress
+            
+        elif stage == 1:  # 中文標註：階段 2 - 往外展
+            hip_pitch = target_hip_pitch
+            knee = target_knee
+            ankle_pitch = target_ankle_pitch
+            hip_roll = target_hip_roll * progress
+            
+        elif stage == 2:  # 中文標註：階段 3 - 外展收回
+            hip_pitch = target_hip_pitch
+            knee = target_knee
+            ankle_pitch = target_ankle_pitch
+            hip_roll = target_hip_roll * (1.0 - progress)
+            
+        elif stage == 3:  # 中文標註：階段 4 - 放下伸直
+            hip_pitch = target_hip_pitch * (1.0 - progress)
+            knee = target_knee * (1.0 - progress)
+            ankle_pitch = target_ankle_pitch * (1.0 - progress)
+
+        self._swing_offsets = [hip_roll, hip_pitch, knee, ankle_pitch]
+
+        # 中文標註：時間推進
+        self._phase3_tick += 1
+        if self._phase3_tick >= PHASE3_TICKS_PER_STAGE * 4:
+            self._phase3_tick = 0
+            self._phase3_cycle += 1
 
 def main(args=None):
     rclpy.init(args=args)

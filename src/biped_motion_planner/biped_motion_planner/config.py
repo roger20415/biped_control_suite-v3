@@ -32,8 +32,8 @@ class Config:
     FOOT_MAX_DEG: float = 90.0
     FOOT_MIN_DEG: float = -90.0
 
-    SACRUM_MAX_DEG: float = 40.0
-    SACRUM_MIN_DEG: float = -40.0
+    SACRUM_MAX_DEG: float = 60.0
+    SACRUM_MIN_DEG: float = -60.0
 
     # default joint angles (in degrees)
     HIP_THETA_UW: float = 270.0

@@ -22,7 +22,7 @@ TIMER_PERIOD: float = 0.05  # in seconds
 INIT_TO_SS_DURATION: float = 1.0  # in seconds
 SS_TO_DS_DURATION: float = 1.0  # in seconds
 DS_TO_SS_DURATION: float = 1.0  # in seconds
-WAIT_SACRUM_TIME: float = 600  # in seconds
+WAIT_SACRUM_TIME: float = 60000  # in seconds #TODO
 
 
 class Phase(Enum):
