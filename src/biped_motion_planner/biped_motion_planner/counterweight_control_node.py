@@ -5,7 +5,7 @@ from geometry_msgs.msg import Quaternion, Vector3
 from numpy.typing import NDArray
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
-from std_msgs.msg import Float64MultiArray, String
+from std_msgs.msg import Float64MultiArray, String, Float64
 from typing import Optional
 from .config import Config, SupportSide
 from .linear_algebra_utils import LinearAlgebraUtils
@@ -143,7 +143,27 @@ class CounterweightControlNode(Node):
             10
         )  # in rad
 
+        self._phase_num_publisher_ = self.create_publisher(
+            Float64,
+            '/biped/phase_num',
+            10
+        )
+
         self._timer = self.create_timer(PUBLISH_PERIOD, self._timer_callback)
+
+    def _pub_phase_num(self) -> None:
+        msg = Float64()
+        if self._phase == 1:
+            msg.data = 0.0 / 6.0
+        elif self._phase == 2:
+            msg.data = 1.0 / 6.0
+        elif self._phase == 3:
+            stage = self._phase3_tick // PHASE3_TICKS_PER_STAGE
+            msg.data = (2.0 + stage) / 6.0
+        else:
+            msg.data = 0.0
+
+        self._phase_num_publisher_.publish(msg)
 
     def _pub_counterweight_pos(self, sacrum_angle: float) -> None:
         msg = Float64MultiArray()
@@ -175,7 +195,6 @@ class CounterweightControlNode(Node):
         l_data = [left_hip, 0.0, 0.0, 0.0, left_foot]
         r_data = [right_hip, 0.0, 0.0, 0.0, right_foot]
 
-        # 中文標註：將動畫偏移量 (offsets) 疊加到非支撐腳上
         if support_side == "right":
             l_data[0] += self._swing_offsets[0]  # hip roll
             l_data[1] += self._swing_offsets[1]  # hip pitch
@@ -315,6 +334,7 @@ class CounterweightControlNode(Node):
 
         self._pub_counterweight_pos(self._sacrum_target)
         self._pub_leg_targets(self._lean_target, support_side, self._transition_alpha)
+        self._pub_phase_num()
 
     def _calc_lean_target(self, err_signed: float) -> float:
         if abs(err_signed) < LEAN_MOVE_THRESHOLD:
@@ -406,11 +426,10 @@ class CounterweightControlNode(Node):
         stage = self._phase3_tick // PHASE3_TICKS_PER_STAGE
         progress = (self._phase3_tick % PHASE3_TICKS_PER_STAGE) / float(PHASE3_TICKS_PER_STAGE)
 
-        # 中文標註：依據支撐腳來決定擺動腳是哪一側，並套用對應的正負號
-        if support_side == "right":  # 擺動左腳
+        if support_side == "right":
             p_sign, k_sign, a_sign = -1.0, 1.0, 1.0  # Thigh(-), Calf(+), Ankle(+)
             r_sign = 1.0                             # Hip Roll(+)
-        elif support_side == "left": # 擺動右腳
+        elif support_side == "left":
             p_sign, k_sign, a_sign = 1.0, -1.0, -1.0 # Thigh(+), Calf(-), Ankle(-)
             r_sign = -1.0                            # Hip Roll(-)
         else:
@@ -423,31 +442,30 @@ class CounterweightControlNode(Node):
 
         hip_roll, hip_pitch, knee, ankle_pitch = 0.0, 0.0, 0.0, 0.0
 
-        if stage == 0:  # 中文標註：階段 1 - 抬腳
+        if stage == 0:
             hip_pitch = target_hip_pitch * progress
             knee = target_knee * progress
             ankle_pitch = target_ankle_pitch * progress
             
-        elif stage == 1:  # 中文標註：階段 2 - 往外展
+        elif stage == 1:
             hip_pitch = target_hip_pitch
             knee = target_knee
             ankle_pitch = target_ankle_pitch
             hip_roll = target_hip_roll * progress
             
-        elif stage == 2:  # 中文標註：階段 3 - 外展收回
+        elif stage == 2:
             hip_pitch = target_hip_pitch
             knee = target_knee
             ankle_pitch = target_ankle_pitch
             hip_roll = target_hip_roll * (1.0 - progress)
             
-        elif stage == 3:  # 中文標註：階段 4 - 放下伸直
+        elif stage == 3:
             hip_pitch = target_hip_pitch * (1.0 - progress)
             knee = target_knee * (1.0 - progress)
             ankle_pitch = target_ankle_pitch * (1.0 - progress)
 
         self._swing_offsets = [hip_roll, hip_pitch, knee, ankle_pitch]
 
-        # 中文標註：時間推進
         self._phase3_tick += 1
         if self._phase3_tick >= PHASE3_TICKS_PER_STAGE * 4:
             self._phase3_tick = 0

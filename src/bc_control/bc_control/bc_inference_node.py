@@ -4,9 +4,8 @@ import time
 import rclpy
 import torch
 import numpy as np
-from typing import Optional, List, Tuple
+from typing import Optional, List
 from collections import deque
-from dataclasses import dataclass
 
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
@@ -39,6 +38,46 @@ HEAD_WEIGHTS_PATH  = os.path.join(SCRIPT_DIR, "model/bc_actor_head_weights.pth")
 ACTION_SCALES_PATH = os.path.join(SCRIPT_DIR, "action_scales.npy")
 
 
+class PhaseNumGenerator:
+    def __init__(self, publish_period: float = 0.05):
+        self.publish_period = publish_period
+        self.phase = 1
+        
+        self.stable_count = 0
+        self.transition_alpha = 0.0
+        self.transition_alpha_inc = 0.02
+        
+        self.phase3_tick = 0
+        self.phase3_ticks_per_stage = int(2.0 / self.publish_period)
+        
+    def step(self) -> float:
+        if self.phase == 1:
+            self.stable_count += 1
+            if self.stable_count >= 10:
+                self.phase = 2
+                self.stable_count = 0
+        elif self.phase == 2:
+            self.transition_alpha += self.transition_alpha_inc
+            if self.transition_alpha >= 1.0:
+                self.phase = 3
+                self.transition_alpha = 0.0
+        elif self.phase == 3:
+            self.phase3_tick += 1
+            if self.phase3_tick >= self.phase3_ticks_per_stage * 4:
+                self.phase3_tick = 0
+
+        if self.phase == 1:
+            return 0.0 / 6.0
+        elif self.phase == 2:
+            return 1.0 / 6.0
+        elif self.phase == 3:
+            # 使用單斜線進行浮點數除法，產生連續過渡數值
+            continuous_stage = self.phase3_tick / self.phase3_ticks_per_stage
+            return (2.0 + continuous_stage) / 6.0
+        
+        return 0.0
+
+
 class BcInferenceNode(Node):
     def __init__(self):
         super().__init__('bc_inference_node')
@@ -56,6 +95,8 @@ class BcInferenceNode(Node):
         self._p_W_l_foot_z: Optional[float] = None
         self._p_W_r_foot_z: Optional[float] = None
 
+        self._phase_generator = PhaseNumGenerator(TIMER_PERIOD_SEC)
+
         # === 2. Load Normalization Parameters ===
         self._obs_mean = np.array(PreprocessCfg.OBS_MEAN, dtype=np.float32)
         self._obs_std = np.array(PreprocessCfg.OBS_STD, dtype=np.float32)
@@ -64,6 +105,35 @@ class BcInferenceNode(Node):
         self._default_joint_pos = np.array(PreprocessCfg.DEFAULT_JOINT_POSITIONS, dtype=np.float32)
         self._action_scales = self._load_action_scales()
 
+        # 中文標註：讀取 Config 內定義的關節極限，並將其轉換為弧度(rad)以供裁切(clip)使用
+        self._action_min_bounds = np.deg2rad([
+            MotionPlannerConfig.SACRUM_MIN_DEG,
+            MotionPlannerConfig.L_HIP_MIN_DEG,
+            MotionPlannerConfig.THIGH_MIN_DEG,
+            MotionPlannerConfig.CALF_MIN_DEG,
+            MotionPlannerConfig.ANKLE_MIN_DEG,
+            MotionPlannerConfig.FOOT_MIN_DEG,
+            MotionPlannerConfig.R_HIP_MIN_DEG,
+            MotionPlannerConfig.THIGH_MIN_DEG,
+            MotionPlannerConfig.CALF_MIN_DEG,
+            MotionPlannerConfig.ANKLE_MIN_DEG,
+            MotionPlannerConfig.FOOT_MIN_DEG
+        ]).astype(np.float32)
+
+        self._action_max_bounds = np.deg2rad([
+            MotionPlannerConfig.SACRUM_MAX_DEG,
+            MotionPlannerConfig.L_HIP_MAX_DEG,
+            MotionPlannerConfig.THIGH_MAX_DEG,
+            MotionPlannerConfig.CALF_MAX_DEG,
+            MotionPlannerConfig.ANKLE_MAX_DEG,
+            MotionPlannerConfig.FOOT_MAX_DEG,
+            MotionPlannerConfig.R_HIP_MAX_DEG,
+            MotionPlannerConfig.THIGH_MAX_DEG,
+            MotionPlannerConfig.CALF_MAX_DEG,
+            MotionPlannerConfig.ANKLE_MAX_DEG,
+            MotionPlannerConfig.FOOT_MAX_DEG
+        ]).astype(np.float32)
+
         # --- Load Model ---
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.get_logger().info(f"Inference Device: {self.device}")
@@ -71,7 +141,8 @@ class BcInferenceNode(Node):
         # Determine dimensions from Config
         self._obs_dim = self._obs_mean.shape[0]
         self._act_dim = self._action_scales.shape[0]
-        self._input_dim = (self._obs_dim * OBS_HISTORY_LEN) + (self._act_dim * ACTION_HISTORY_LEN)
+
+        self._input_dim = (self._obs_dim * OBS_HISTORY_LEN) + (self._act_dim * ACTION_HISTORY_LEN) + 1
         self._model = self._load_model(input_dim=self._input_dim)
 
         self._obs_history = deque(maxlen=OBS_HISTORY_LEN)
@@ -185,14 +256,16 @@ class BcInferenceNode(Node):
         if not self._check_states_ready():
             return
 
+        current_phase_num = self._phase_generator.step()
+
         # 2. Get Normalized Sensor Data
         raw_sensor_obs = self._get_current_raw_state()
         norm_sensor_obs = self._normalize_obs(raw_sensor_obs)
 
         self._update_history_buffers(norm_sensor_obs)
         
-        # 3. Construct Stacked Input Vector
-        input_vector = self._construct_model_input()
+        # 3. Construct Stacked Input Vector (將 current_phase_num 傳入)
+        input_vector = self._construct_model_input(current_phase_num)
         
         # 4. Model Inference
         # input_vector shape is (1, input_dim)
@@ -250,16 +323,17 @@ class BcInferenceNode(Node):
                 self._act_history.append(zeros_act)
         self._obs_history.append(current_pure_sensor_obs)
 
-    def _construct_model_input(self) -> np.ndarray:
+    def _construct_model_input(self, phase_num: float) -> np.ndarray:
         s_list = list(self._obs_history)
         a_list = list(self._act_history)
         input_vector = np.concatenate(s_list + a_list, axis=0)
         
+        input_vector = np.concatenate([input_vector, np.array([phase_num], dtype=np.float32)])
         return input_vector
 
     def _check_states_ready(self) -> bool:
         if (self._p_W_baselink_z is None or
-            self._q_W_baselink is None or  # Added check for Quaternion
+            self._q_W_baselink is None or
             self._p_W_l_foot_z is None or
             self._p_W_r_foot_z is None or
             not self._twist_W_baselink or
@@ -313,9 +387,12 @@ class BcInferenceNode(Node):
         return normalized_obs.astype(np.float32)
 
     def _scale_actions(self, model_output: np.ndarray) -> np.ndarray:
-            action_delta = model_output * self._action_scales
-            real_target = action_delta + self._default_joint_pos          
-            return real_target
+        action_delta = model_output * self._action_scales
+        real_target = action_delta + self._default_joint_pos
+        
+        # 中文標註：依照建立好的邊界，限制輸出的物理角度，避免違反 config.py 中設定的硬體極限
+        real_target_clipped = np.clip(real_target, self._action_min_bounds, self._action_max_bounds)
+        return real_target_clipped
 
     def _publish_actions(self, targets: np.ndarray) -> None:
         if targets.shape[0] != 11:

@@ -8,7 +8,7 @@ from collections import deque
 from geometry_msgs.msg import Quaternion, Twist, Vector3
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
-from std_msgs.msg import Float64MultiArray
+from std_msgs.msg import Float64MultiArray, Float64
 from sensor_msgs.msg import JointState
 
 TIMER_PERIOD_SEC = 0.05  #20 Hz
@@ -34,6 +34,7 @@ class DataCollectNode(Node):
         self._twist_W_baselink: Optional[list[float]] = None
         self._joint_positions: Optional[List[float]] = None
         self._joint_velocities: Optional[List[float]] = None
+        self._phase_num: Optional[float] = None
 
         # for actions
         self._sacrum_joint_target: Optional[float] = None
@@ -111,6 +112,13 @@ class DataCollectNode(Node):
             self._counterweight_joint_targets_callback,
             qos_sensor
         )
+        self._phase_num_subscriber_ = self.create_subscription(
+            Float64,
+            '/biped/phase_num',
+            self._phase_num_callback,
+            qos_sensor
+        )
+
         self._timer = self.create_timer(TIMER_PERIOD_SEC, self.on_timer)
 
     def _baselink_translate_callback(self, msg: Vector3) -> None:
@@ -141,10 +149,15 @@ class DataCollectNode(Node):
 
     def _left_joint_target_callback(self, msg: Float64MultiArray) -> None:
         self._left_joint_targets = list(msg.data) if msg.data else []
+        
     def _right_joint_target_callback(self, msg: Float64MultiArray) -> None:
         self._right_joint_targets = list(msg.data) if msg.data else []
+        
     def _counterweight_joint_targets_callback(self, msg: Float64MultiArray) -> None:
         self._sacrum_joint_target = msg.data[1] if msg.data else None
+
+    def _phase_num_callback(self, msg: Float64) -> None:
+        self._phase_num = msg.data
 
     def on_timer(self) -> None:
         if not self._check_states_ready():
@@ -233,7 +246,8 @@ class DataCollectNode(Node):
         obs_parts.extend(prev_actions)
 
         final_obs = np.concatenate(obs_parts, axis=0)
-        # final_obs: [S_t-2, S_t-1, S_t, A_t-2, A_t-1]
+        final_obs = np.concatenate([final_obs, np.array([self._phase_num], dtype=np.float32)])
+        # final_obs: [S_t-2, S_t-1, S_t, A_t-2, A_t-1, phase_num]
 
         self._state_history.append(current_state)
         self._action_history.append(current_action)
@@ -307,7 +321,8 @@ class DataCollectNode(Node):
             self._p_W_r_foot_z is None or
             not self._twist_W_baselink or
             not self._joint_positions or
-            not self._joint_velocities):
+            not self._joint_velocities or
+            self._phase_num is None):
             return False
         return True
     
