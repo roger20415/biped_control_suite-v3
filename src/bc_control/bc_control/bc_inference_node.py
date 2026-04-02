@@ -28,7 +28,6 @@ ACTIVATION_FN_STR = 'nn.ELU'
 
 OBS_HISTORY_LEN = 3
 ACTION_HISTORY_LEN = 2
-CLOCK_DIM = 2
 
 # Path Configs
 try:
@@ -40,94 +39,13 @@ HEAD_WEIGHTS_PATH  = os.path.join(SCRIPT_DIR, "model/bc_actor_head_weights.pth")
 ACTION_SCALES_PATH = os.path.join(SCRIPT_DIR, "action_scales.npy")
 
 
-@dataclass
-class PhaseConfig:
-    phase_type: str  # 'move' or 'stop'
-    target_val: float # End value for move, or holding value for stop
-    steps: int
-    start_val: float = 0.0 # Only used for 'move' to calc delta
-
-class ClockGenerator:
-    """
-    Generates a cyclic clock signal based on a predefined schedule.
-    Cycle:
-    1. 0.75 -> 0.0  (20 steps) [Init/Loop Start]
-    2. Stop at 0.0  (28 steps)
-    3. 0.0 -> 0.25  (20 steps)
-    4. Stop at 0.25 ( 3 steps)
-    5. 0.25 -> 0.5  (20 steps)
-    6. Stop at 0.5  (28 steps)
-    7. 0.5 -> 0.75  (20 steps)
-    8. Stop at 0.75 ( 3 steps)
-    """
-    def __init__(self):
-        # Define the cycle sequence
-        self.phases = [
-            # 1. 0.75 -> 0.0 (Moves from 0.75 to 1.0 which is 0.0)
-            PhaseConfig('move', start_val=0.75, target_val=1.0, steps=20),
-            # 2. Stop at 0.0
-            PhaseConfig('stop', start_val=0.0,  target_val=0.0, steps=28),
-            # 3. 0.0 -> 0.25
-            PhaseConfig('move', start_val=0.0,  target_val=0.25, steps=20),
-            # 4. Stop at 0.25
-            PhaseConfig('stop', start_val=0.25, target_val=0.25, steps=3),
-            # 5. 0.25 -> 0.5
-            PhaseConfig('move', start_val=0.25, target_val=0.5, steps=20),
-            # 6. Stop at 0.5
-            PhaseConfig('stop', start_val=0.5,  target_val=0.5, steps=28),
-            # 7. 0.5 -> 0.75
-            PhaseConfig('move', start_val=0.5,  target_val=0.75, steps=20),
-            # 8. Stop at 0.75
-            PhaseConfig('stop', start_val=0.75, target_val=0.75, steps=3),
-        ]
-        
-        self.current_phase_idx = 0
-        self.steps_in_phase = 0
-        self.current_clock = 0.75 # Start value
-
-    def step(self) -> Tuple[float, float]:
-        """Advances the clock by one step and returns (sin, cos)."""
-        phase = self.phases[self.current_phase_idx]
-
-        if phase.phase_type == 'stop':
-            self.current_clock = phase.target_val
-        
-        elif phase.phase_type == 'move':
-            # Calculate linear interpolation
-            progress = (self.steps_in_phase + 1) / phase.steps
-            # Handle wrapping if needed, but linear algebra handles 0.75->1.0 fine
-            # We treat 0.0 as 1.0 for the interpolation of the last segment if needed
-            start = phase.start_val
-            end = phase.target_val
-            self.current_clock = start + (end - start) * progress
-            
-            # Normalize to [0, 1)
-            if self.current_clock >= 1.0:
-                self.current_clock -= 1.0
-
-        # Calculate outputs
-        clock_rad = 2 * np.pi * self.current_clock
-        val_sin = np.sin(clock_rad)
-        val_cos = np.cos(clock_rad)
-
-        # Advance counters
-        self.steps_in_phase += 1
-        if self.steps_in_phase >= phase.steps:
-            # Move to next phase
-            self.steps_in_phase = 0
-            self.current_phase_idx = (self.current_phase_idx + 1) % len(self.phases)
-
-        return float(val_sin), float(val_cos)
-
 class BcInferenceNode(Node):
     def __init__(self):
         super().__init__('bc_inference_node')
         self._step_counter = 0
         self._run_start_time_sec = time.monotonic()
         self._elapsed_time_sec: Optional[float] = None
-        self._completed_step_count = 0
         self._fell_down = False
-        self._last_clock_phase_idx: Optional[int] = None
 
         # === 1. State Variables (Same as Collector) ===
         self._p_W_baselink_z: Optional[float] = None
@@ -137,9 +55,6 @@ class BcInferenceNode(Node):
         self._joint_velocities: Optional[List[float]] = None
         self._p_W_l_foot_z: Optional[float] = None
         self._p_W_r_foot_z: Optional[float] = None
-
-        self._clock_gen = ClockGenerator()
-        self.get_logger().info("Clock Generator Initialized.")
 
         # === 2. Load Normalization Parameters ===
         self._obs_mean = np.array(PreprocessCfg.OBS_MEAN, dtype=np.float32)
@@ -156,7 +71,7 @@ class BcInferenceNode(Node):
         # Determine dimensions from Config
         self._obs_dim = self._obs_mean.shape[0]
         self._act_dim = self._action_scales.shape[0]
-        self._input_dim = (self._obs_dim * OBS_HISTORY_LEN) + (self._act_dim * ACTION_HISTORY_LEN) + CLOCK_DIM
+        self._input_dim = (self._obs_dim * OBS_HISTORY_LEN) + (self._act_dim * ACTION_HISTORY_LEN)
         self._model = self._load_model(input_dim=self._input_dim)
 
         self._obs_history = deque(maxlen=OBS_HISTORY_LEN)
@@ -276,15 +191,10 @@ class BcInferenceNode(Node):
 
         self._update_history_buffers(norm_sensor_obs)
         
-        # 3. [NEW] Generate Clock Data
-        clock_sin, clock_cos = self._clock_gen.step()
-        self._update_completed_step_count()
-        clock_obs = np.array([clock_sin, clock_cos], dtype=np.float32)
+        # 3. Construct Stacked Input Vector
+        input_vector = self._construct_model_input()
         
-        # 6. Construct Stacked Input Vector
-        input_vector = self._construct_model_input(clock_obs)
-        
-        # 7. Model Inference
+        # 4. Model Inference
         # input_vector shape is (1, input_dim)
         obs_tensor = torch.as_tensor(input_vector, dtype=torch.float32, device=self.device).unsqueeze(0)
         
@@ -292,11 +202,11 @@ class BcInferenceNode(Node):
             norm_action_pred = self._model(obs_tensor).squeeze(0).cpu().numpy()
         self._act_history.append(norm_action_pred)
 
-        # 8. Scale Actions to Real World
+        # 5. Scale Actions to Real World
         real_actions = self._scale_actions(norm_action_pred)
-        self._log_predict_actions(real_actions, clock_sin, clock_cos)
+        self._log_predict_actions(real_actions)
         
-        # 9. Publish
+        # 6. Publish
         self._publish_actions(real_actions)
 
     # ================= Helper Functions =================
@@ -340,10 +250,10 @@ class BcInferenceNode(Node):
                 self._act_history.append(zeros_act)
         self._obs_history.append(current_pure_sensor_obs)
 
-    def _construct_model_input(self, current_clock: np.ndarray) -> np.ndarray:
+    def _construct_model_input(self) -> np.ndarray:
         s_list = list(self._obs_history)
         a_list = list(self._act_history)
-        input_vector = np.concatenate(s_list + a_list + [current_clock], axis=0)
+        input_vector = np.concatenate(s_list + a_list, axis=0)
         
         return input_vector
 
@@ -378,17 +288,6 @@ class BcInferenceNode(Node):
     def _check_foot_contact(self, foot_z: float) -> float:
         return 1.0 if foot_z < FOOT_CONTACT_THRESHOLD else -1.0
 
-    def _update_completed_step_count(self) -> None:
-        current_phase_idx = self._clock_gen.current_phase_idx
-        if self._last_clock_phase_idx is None:
-            self._last_clock_phase_idx = current_phase_idx
-            return
-
-        if current_phase_idx != self._last_clock_phase_idx:
-            if current_phase_idx in (3, 7):
-                self._completed_step_count += 1
-            self._last_clock_phase_idx = current_phase_idx
-
     def _check_fall_down(self, baselink_z: float) -> None:
         if self._fell_down:
             return
@@ -398,7 +297,7 @@ class BcInferenceNode(Node):
             self._timer.cancel()
             result_message = (
                 f'Robot fell down. Elapsed time: {self._elapsed_time_sec:.3f} s, '
-                f'steps: {self._completed_step_count}'
+                f'steps: {self._step_counter}'
             )
             self.get_logger().error(result_message)
             print(result_message)
@@ -435,7 +334,7 @@ class BcInferenceNode(Node):
         msg_right.data = [float(x) for x in targets[6:11]]
         self._right_joint_target_pub_.publish(msg_right)
     
-    def _log_predict_actions(self, real_actions: np.ndarray, sin_val: float, cos_val: float) -> None:
+    def _log_predict_actions(self, real_actions: np.ndarray) -> None:
         self._step_counter += 1
         if self._step_counter % 100 == 0:
             action_str = np.array2string(real_actions, precision=3, suppress_small=True)
