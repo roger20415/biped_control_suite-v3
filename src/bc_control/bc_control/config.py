@@ -19,10 +19,10 @@ class Config:
     FOOT_LEN: float = 0.0011  # foot joint to ground
 
     # joint angle limits (in degrees)
-    L_HIP_MAX_DEG: float = 50.0
+    L_HIP_MAX_DEG: float = 80.0
     L_HIP_MIN_DEG: float = -50.0
     R_HIP_MAX_DEG: float = 50.0
-    R_HIP_MIN_DEG: float = -50.0
+    R_HIP_MIN_DEG: float = -80.0
     THIGH_MAX_DEG: float = 90.0
     THIGH_MIN_DEG: float = -90.0
     CALF_MAX_DEG: float = 90.0

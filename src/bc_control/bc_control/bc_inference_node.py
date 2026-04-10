@@ -48,7 +48,7 @@ class PhaseNumGenerator:
         self.transition_alpha_inc = 0.02
         
         self.phase3_tick = 0
-        self.phase3_ticks_per_stage = int(2.0 / self.publish_period)
+        self.phase3_ticks_per_stage = int(3.5 / self.publish_period)
         
     def step(self) -> float:
         if self.phase == 1:
@@ -71,8 +71,7 @@ class PhaseNumGenerator:
         elif self.phase == 2:
             return 1.0 / 6.0
         elif self.phase == 3:
-            # 使用單斜線進行浮點數除法，產生連續過渡數值
-            continuous_stage = self.phase3_tick / self.phase3_ticks_per_stage
+            continuous_stage = self.phase3_tick // self.phase3_ticks_per_stage
             return (2.0 + continuous_stage) / 6.0
         
         return 0.0
