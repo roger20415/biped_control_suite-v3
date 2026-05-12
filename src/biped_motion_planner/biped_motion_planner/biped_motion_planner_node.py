@@ -101,55 +101,55 @@ class BipedMotionPlannerNode(Node):
         )
         self._baselink_translate_subscriber_ = self.create_subscription(
             Vector3,
-            '/baselink/translate',
+            '/baselink/translate', # from isaacsim
             self._baselink_translate_callback,
             qos_sensor
         )
         self._l_foot_translate_subscriber_ = self.create_subscription(
             Vector3,
-            '/l_foot/translate',
+            '/l_foot/translate', # from isaacsim
             self._l_foot_translate_callback,
             qos_sensor
         )
         self._r_foot_translate_subscriber_ = self.create_subscription(
             Vector3,
-            '/r_foot/translate',
+            '/r_foot/translate', # from isaacsim
             self._r_foot_translate_callback,
             qos_sensor
         )
         self._baselink_quat_subscriber_ = self.create_subscription(
             Quaternion,
-            '/baselink/quat',
+            '/baselink/quat', # from isaacsim
             self._baselink_quat_callback,
             qos_sensor
         )
         self._l_foot_quat_subscriber_ = self.create_subscription(
             Quaternion,
-            '/l_foot/quat',
+            '/l_foot/quat', # from isaacsim
             self._l_foot_quat_callback,
             qos_sensor
         )
         self._r_foot_quat_subscriber_ = self.create_subscription(
             Quaternion,
-            '/r_foot/quat',
+            '/r_foot/quat', # from isaacsim
             self._r_foot_quat_callback,
             qos_sensor
         )
         self._left_joint_targets_subscriber_ = self.create_subscription(
             Float32MultiArray,
-            '/biped/left_joint_target',
+            '/biped/left_joint_target', # from control suite
             self._left_joint_targets_callback,
             qos_sensor  # in rad
         )
         self._right_joint_targets_subscriber_ = self.create_subscription(
             Float32MultiArray,
-            '/biped/right_joint_target',
+            '/biped/right_joint_target', # from control suite
             self._right_joint_targets_callback,
             qos_sensor  # in rad
         )
         self._support_side_publisher_ = self.create_publisher(
             String,
-            '/biped/support_side',
+            '/biped/support_side', 
             10
         )
         self._stance_side_publisher_ = self.create_publisher(

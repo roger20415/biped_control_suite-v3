@@ -60,61 +60,61 @@ class DataCollectNode(Node):
         )
         self._baselink_translate_subscriber_ = self.create_subscription(
             Vector3,
-            '/baselink/translate',
+            '/baselink/translate', # from isaacsim
             self._baselink_translate_callback,
             qos_sensor
         )
         self._baselink_quat_subscriber_ = self.create_subscription(
             Quaternion,
-            '/baselink/quat',
+            '/baselink/quat', # from isaacsim
             self._baselink_quat_callback,
             qos_sensor
         )
         self._baselink_twist_subscriber_ = self.create_subscription(
             Twist,
-            '/baselink/twist',
+            '/baselink/twist', # from isaacsim
             self._baselink_twist_callback,
             qos_sensor
         )
         self._joint_state_subscriber_ = self.create_subscription(
-            JointState,
-            '/biped/jointState', # 11 joints expected back
+            JointState, 
+            '/biped/jointState', # 11 joints expected back # from isaacsim
             self._joint_state_callback, 
             qos_sensor
         )
         self._l_foot_translate_subscriber_ = self.create_subscription(
             Vector3,
-            '/l_foot/translate',
+            '/l_foot/translate', # from isaacsim
             self._l_foot_translate_callback,
             qos_sensor
         )
         self._r_foot_translate_subscriber_ = self.create_subscription(
             Vector3,
-            '/r_foot/translate',
+            '/r_foot/translate', # from isaacsim
             self._r_foot_translate_callback,
             qos_sensor
         )
         self._left_joint_target_subscriber_ = self.create_subscription(
-            Float32MultiArray,
-            '/biped/left_joint_target',# 5 joints
+            Float32MultiArray, 
+            '/biped/left_joint_target',# 5 joints # from control suite
             self._left_joint_target_callback,
             qos_sensor
         )
         self._right_joint_target_subscriber_ = self.create_subscription(
-            Float32MultiArray,
-            '/biped/right_joint_target',# 5 joints
+            Float32MultiArray, 
+            '/biped/right_joint_target',# 5 joints # from control suite
             self._right_joint_target_callback,
             qos_sensor
         )
         self._counterweight_joint_targets_subscriber_ = self.create_subscription(
             Float32MultiArray,
-            '/counterweight/joint_targets', # [back, sacrum]
+            '/counterweight/joint_targets', # [back, sacrum] # from control suite
             self._counterweight_joint_targets_callback,
             qos_sensor
         )
         self._phase_num_subscriber_ = self.create_subscription(
             Float32,
-            '/biped/phase_num',
+            '/biped/phase_num', # from control suite
             self._phase_num_callback,
             qos_sensor
         )
