@@ -28,7 +28,7 @@ def test_transform_points_World_to_Baselink(joint_targets_calculator):
         [ 0.7071067811865476, -0.7071067811865476, 0.0,               0.7071067811865476],
         [-0.7071067811865476, -0.7071067811865476, 0.0,               1.4142135623730951],
         [ 0.0,                0.0,                0.0,                1.0],
-    ], dtype=np.float64)
+    ], dtype=np.float32)
     
     joint_targets_calculator.p_W = {
         "foot": Vector3(x=1.5, y=2.5, z=3.5),
@@ -59,7 +59,7 @@ def test_calc_WB_transform(joint_targets_calculator):
         [ 0.0,  0.7071067811865476, -0.7071067811865476],
         [ 0.0, -0.7071067811865476, -0.7071067811865476],
         [-1.0,  0.0,                0.0],
-    ], dtype=np.float64)
+    ], dtype=np.float32)
     assert np.allclose(R_WB, R_WB_expected, atol=1e-12)
 
     T_BW_expected = np.array([
@@ -67,7 +67,7 @@ def test_calc_WB_transform(joint_targets_calculator):
         [ 0.7071067811865476, -0.7071067811865476, 0.0,               0.7071067811865476],
         [-0.7071067811865476, -0.7071067811865476, 0.0,               1.4142135623730951],
         [ 0.0,                0.0,                0.0,                1.0],
-    ], dtype=np.float64)
+    ], dtype=np.float32)
     assert np.allclose(T_BW, T_BW_expected, atol=1e-12)
 
 def test_transform_points_Baselink_to_Leg(joint_targets_calculator):
@@ -76,7 +76,7 @@ def test_transform_points_Baselink_to_Leg(joint_targets_calculator):
         [0.0, 0.948683298050514,  0.316227766016838, 0.447213595499958],
         [0.0, -0.316227766016838, 0.948683298050514, 0.223606797749979],
         [0.0, 0.0, 0.0, 1.0],
-    ], dtype=np.float64)
+    ], dtype=np.float32)
 
     joint_targets_calculator.p_B = {
         "foot": Vector3(x=-1.0, y=0.0, z=-1.41421356)
@@ -100,14 +100,14 @@ def test_calc_BL_transforms(joint_targets_calculator):
         [1.0, 0.0, 0.0],
         [0.0, 0.948683298050514, -0.316227766016838],
         [0.0, 0.316227766016838,  0.948683298050514],
-    ], dtype=np.float64)
+    ], dtype=np.float32)
 
     T_LB_expected = np.array([
         [1.0, 0.0, 0.0, 0.5],
         [0.0, 0.948683298050514,  0.316227766016838, 0.447213595499958],
         [0.0, -0.316227766016838, 0.948683298050514, 0.223606797749979],
         [0.0, 0.0, 0.0, 1.0],
-    ], dtype=np.float64)
+    ], dtype=np.float32)
 
     assert np.allclose(R_BL, R_BL_expected, atol=1e-12)
     assert np.allclose(T_LB, T_LB_expected, atol=1e-12)
@@ -123,7 +123,7 @@ def test_calc_R_BL(joint_targets_calculator):
         [1.0, 0.0, 0.0],
         [0.0, 0.948683298050514, -0.316227766016838],
         [0.0, 0.316227766016838,  0.948683298050514],
-    ], dtype=np.float64)
+    ], dtype=np.float32)
     assert np.allclose(R_BL, R_BL_expected, atol=1e-12)
 
 def test_calc_R_BL_norm_zero(joint_targets_calculator):
@@ -166,54 +166,54 @@ def test_calc_phi_BL(joint_targets_calculator):
 
 
 def test_project_gravity_to_uw_plane(joint_targets_calculator):
-    R_BW = np.eye(3, dtype=np.float64)
+    R_BW = np.eye(3, dtype=np.float32)
     R_LB = np.array([
         [1.0, 0.0, 0.0],
         [0.0, 0.948683298050514,  0.316227766016838],
         [0.0, -0.316227766016838, 0.948683298050514],
-    ], dtype=np.float64)
+    ], dtype=np.float32)
     e_L_proj = joint_targets_calculator._project_gravity_to_uw_plane(R_BW, R_LB)
-    e_L_proj_expected = np.array([0.0, 0.0, -1.0], dtype=np.float64)
+    e_L_proj_expected = np.array([0.0, 0.0, -1.0], dtype=np.float32)
     assert np.allclose(e_L_proj, e_L_proj_expected, atol=1e-12)
 
     R_BW = np.array([
         [ 0.0, 0.0, 1.0],
         [ 0.0, 1.0, 0.0],
         [-1.0, 0.0, 0.0],
-    ], dtype=np.float64)
+    ], dtype=np.float32)
 
     R_LB = np.array([
         [1.0, 0.0, 0.0],
         [0.0, 0.948683298050514,  0.316227766016838],
         [0.0, -0.316227766016838, 0.948683298050514],
-    ], dtype=np.float64)
+    ], dtype=np.float32)
 
     e_L_proj = joint_targets_calculator._project_gravity_to_uw_plane(R_BW, R_LB)
-    e_L_proj_expected = np.array([-1.0, 0.0, 0.0], dtype=np.float64)
+    e_L_proj_expected = np.array([-1.0, 0.0, 0.0], dtype=np.float32)
     assert np.allclose(e_L_proj, e_L_proj_expected, atol=1e-12)
 
 def test_project_gravity_to_uw_plane_degenerate_projection_warns(joint_targets_calculator):
-    R_BW = np.eye(3, dtype=np.float64)
+    R_BW = np.eye(3, dtype=np.float32)
     R_LB = np.array([[1., 0., 0.],
                      [0., 0., -1.],
-                     [0., 1.,  0.]], dtype=np.float64)
+                     [0., 1.,  0.]], dtype=np.float32)
     with pytest.warns(RuntimeWarning, match="Gravity is parallel to the uw-plane normal; projection is degenerated. Returning -w_L."):
         e_L_proj = joint_targets_calculator._project_gravity_to_uw_plane(R_BW, R_LB)
-    e_L_proj_expected = np.array([0.0, 0.0, -1.0], dtype=np.float64)
+    e_L_proj_expected = np.array([0.0, 0.0, -1.0], dtype=np.float32)
     assert np.allclose(e_L_proj, e_L_proj_expected, atol=1e-12)
 
 def test_calc_p_uw_ankle(joint_targets_calculator):
     joint_targets_calculator.p_uw = {
-        "foot": np.array([-0.5, -1.118033989], dtype=np.float64)
+        "foot": np.array([-0.5, -1.118033989], dtype=np.float32)
     }
-    e_L_proj = np.array([0.6, 0.0, 0.8], dtype=np.float64)
+    e_L_proj = np.array([0.6, 0.0, 0.8], dtype=np.float32)
     p_uw_ankle = joint_targets_calculator._calc_p_uw_ankle(e_L_proj)
 
     # The vector of ankle to foot
     delta = joint_targets_calculator.p_uw["foot"] - p_uw_ankle
     assert np.isclose(np.linalg.norm(delta), Config.ANKLE_LEN, atol=1e-12)
 
-    e_uw_proj = np.array([e_L_proj[0], e_L_proj[2]], dtype=np.float64)
+    e_uw_proj = np.array([e_L_proj[0], e_L_proj[2]], dtype=np.float32)
     e_uw_proj_norm = e_uw_proj / np.linalg.norm(e_uw_proj)
     delta_norm = delta / np.linalg.norm(delta)
     assert np.allclose(delta_norm, e_uw_proj_norm, atol=1e-12)
@@ -223,8 +223,8 @@ def test_calc_theta_calf(monkeypatch, joint_targets_calculator):
     monkeypatch.setattr(Config, "THIGH_LEN", 1.0)
     monkeypatch.setattr(Config, "CALF_LEN", 1.0)
     joint_targets_calculator.p_uw = {
-        "thigh": np.array([0.0, -1.0], dtype=np.float64),
-        "ankle": np.array([1.0, -2.2], dtype=np.float64)
+        "thigh": np.array([0.0, -1.0], dtype=np.float32),
+        "ankle": np.array([1.0, -2.2], dtype=np.float32)
     }
 
     theta_calf, thigh_to_ankle_vec_uw, p_uw_ankle_new, hold_prev_pose = joint_targets_calculator._calc_theta_calf()
@@ -237,8 +237,8 @@ def test_calc_theta_calf(monkeypatch, joint_targets_calculator):
     monkeypatch.setattr(Config, "THIGH_LEN", 1.0)
     monkeypatch.setattr(Config, "CALF_LEN", 3.0)
     joint_targets_calculator.p_uw = {
-        "thigh": np.array([0.0, -1.0], dtype=np.float64),
-        "ankle": np.array([0.4639, -4.4691], dtype=np.float64)
+        "thigh": np.array([0.0, -1.0], dtype=np.float32),
+        "ankle": np.array([0.4639, -4.4691], dtype=np.float32)
     }
 
     theta_calf, thigh_to_ankle_vec_uw, p_uw_ankle_new, hold_prev_pose = joint_targets_calculator._calc_theta_calf()
@@ -251,8 +251,8 @@ def test_calc_theta_calf(monkeypatch, joint_targets_calculator):
     monkeypatch.setattr(Config, "THIGH_LEN", 1.0)
     monkeypatch.setattr(Config, "CALF_LEN", 1.0)
     joint_targets_calculator.p_uw = {
-        "thigh": np.array([0.0, -1.0], dtype=np.float64),
-        "ankle": np.array([1.0, -2.0], dtype=np.float64)
+        "thigh": np.array([0.0, -1.0], dtype=np.float32),
+        "ankle": np.array([1.0, -2.0], dtype=np.float32)
     }
 
     theta_calf, thigh_to_ankle_vec_uw, p_uw_ankle_new, hold_prev_pose = joint_targets_calculator._calc_theta_calf()
@@ -265,8 +265,8 @@ def test_calc_theta_calf_ankle_too_far(monkeypatch, joint_targets_calculator):
     monkeypatch.setattr(Config, "THIGH_LEN", 1.0)
     monkeypatch.setattr(Config, "CALF_LEN", 1.0)
     joint_targets_calculator.p_uw = {
-        "thigh": np.array([0.0, -1.0], dtype=np.float64),
-        "ankle": np.array([5.0, -6.0], dtype=np.float64)
+        "thigh": np.array([0.0, -1.0], dtype=np.float32),
+        "ankle": np.array([5.0, -6.0], dtype=np.float32)
     }
     p_uw_ankle_new_expect = np.array([2/np.sqrt(2), -1-(2/np.sqrt(2))])
     with pytest.warns(RuntimeWarning, match="Ankle is too far from hip"):
@@ -281,8 +281,8 @@ def test_calc_theta_calf_ankle_too_close(monkeypatch, joint_targets_calculator):
     monkeypatch.setattr(Config, "THIGH_LEN", 1.0)
     monkeypatch.setattr(Config, "CALF_LEN", 3.0)
     joint_targets_calculator.p_uw = {
-        "thigh": np.array([0.0, -1.0], dtype=np.float64),
-        "ankle": np.array([0.0, -2.0], dtype=np.float64)
+        "thigh": np.array([0.0, -1.0], dtype=np.float32),
+        "ankle": np.array([0.0, -2.0], dtype=np.float32)
     }
 
     with pytest.warns(RuntimeWarning, match="Ankle is too close to hip"):
@@ -297,8 +297,8 @@ def test_calc_theta_calf_exceed(monkeypatch, joint_targets_calculator):
     monkeypatch.setattr(Config, "THIGH_LEN", 1.0)
     monkeypatch.setattr(Config, "CALF_LEN", 1.0)
     joint_targets_calculator.p_uw = {
-        "thigh": np.array([0.0, -1.0], dtype=np.float64),
-        "ankle": np.array([0.0, -2.0], dtype=np.float64)
+        "thigh": np.array([0.0, -1.0], dtype=np.float32),
+        "ankle": np.array([0.0, -2.0], dtype=np.float32)
     }
 
     with pytest.warns(RuntimeWarning, match="exceeds"):
@@ -312,7 +312,7 @@ def test_calc_theta_thigh(monkeypatch, joint_targets_calculator):
     # test1: 3rd quadrant, human-like knee
     monkeypatch.setattr(Config, "THIGH_LEN", 3.0)
     monkeypatch.setattr(Config, "CALF_LEN", 4.0)
-    thigh_to_ankle_vec_uw = np.array([-4.5809694797, -4.5809694797], dtype=np.float64)
+    thigh_to_ankle_vec_uw = np.array([-4.5809694797, -4.5809694797], dtype=np.float32)
     joint_targets_calculator.joint_theta = {
         "calf": -45.0
     }
@@ -323,7 +323,7 @@ def test_calc_theta_thigh(monkeypatch, joint_targets_calculator):
     # test2: 4th quadrant, dog-like knee
     monkeypatch.setattr(Config, "THIGH_LEN", 1.0)
     monkeypatch.setattr(Config, "CALF_LEN", 1.0)
-    thigh_to_ankle_vec_uw = np.array([1.3660254038, -1.3660254038], dtype=np.float64)
+    thigh_to_ankle_vec_uw = np.array([1.3660254038, -1.3660254038], dtype=np.float32)
     joint_targets_calculator.joint_theta = {
         "calf": 30.0
     }
@@ -354,11 +354,11 @@ def test_calc_phi_foot(joint_targets_calculator):
     # test1: R_WB +z=45deg, R_BL +x=0deg
     R_WB = np.array([[0.70710678, -0.70710678, 0.],
                     [0.70710678,  0.70710678, 0.],
-                    [0.,          0.,         1.]], dtype=np.float64)
+                    [0.,          0.,         1.]], dtype=np.float32)
     R_BL = np.array([[1.0, 0.0, 0.0],
                     [0.0, 1.0, 0.0],
-                    [0.0, 0.0, 1.0]], dtype=np.float64)
-    e_L_proj = np.array([1.0, 0.0, -1.0], dtype=np.float64)
+                    [0.0, 0.0, 1.0]], dtype=np.float32)
+    e_L_proj = np.array([1.0, 0.0, -1.0], dtype=np.float32)
     phi_foot, hold_prev_pose = joint_targets_calculator._calc_phi_foot(R_WB, R_BL, e_L_proj)
     assert np.isclose(phi_foot, 0.0, atol=1e-12)
     assert hold_prev_pose is False
@@ -366,11 +366,11 @@ def test_calc_phi_foot(joint_targets_calculator):
     # test2: R_WB +z=0deg, R_BL +x=-30deg
     R_WB = np.array([[1.0, 0.0, 0.0],
                     [0.0, 1.0, 0.0],
-                    [0.0, 0.0, 1.0]], dtype=np.float64)
+                    [0.0, 0.0, 1.0]], dtype=np.float32)
     R_BL = np.array([[1.0, 0.0, 0.0],
                     [0.0, 0.8660254, 0.5],
-                    [0.0, -0.5, 0.8660254]], dtype=np.float64)
-    e_L_proj = np.array([-1.0, 0.0, -1.0], dtype=np.float64)
+                    [0.0, -0.5, 0.8660254]], dtype=np.float32)
+    e_L_proj = np.array([-1.0, 0.0, -1.0], dtype=np.float32)
     phi_foot, hold_prev_pose = joint_targets_calculator._calc_phi_foot(R_WB, R_BL, e_L_proj)
     assert np.isclose(phi_foot, 30.0, atol=1e-12)
     assert hold_prev_pose is False
@@ -378,13 +378,13 @@ def test_calc_phi_foot(joint_targets_calculator):
     # test3: R_WB +z=180deg, R_BL +x=-30deg
     R_WB = np.array([[-1.0,  0.0,  0.0],
                     [ 0.0, -1.0,  0.0],
-                    [ 0.0,  0.0,  1.0]], dtype=np.float64)
+                    [ 0.0,  0.0,  1.0]], dtype=np.float32)
 
     R_BL = np.array([[1.0, 0.0, 0.0],
                     [0.0, 0.8660254, 0.5],
-                    [0.0, -0.5, 0.8660254]], dtype=np.float64)
+                    [0.0, -0.5, 0.8660254]], dtype=np.float32)
 
-    e_L_proj = np.array([1.0, 0.0, -1.0], dtype=np.float64)
+    e_L_proj = np.array([1.0, 0.0, -1.0], dtype=np.float32)
     phi_foot, hold_prev_pose = joint_targets_calculator._calc_phi_foot(R_WB, R_BL, e_L_proj)
     assert np.isclose(phi_foot, 30.0, atol=1e-12)
     assert hold_prev_pose is False
@@ -394,31 +394,31 @@ def test_calc_phi_foot(joint_targets_calculator):
         [-0.32139380, -0.88302222,  0.34202014],
         [ 0.84301347, -0.43131696, -0.32139380],
         [ 0.43131696,  0.18503361,  0.88302222]
-    ], dtype=np.float64)
+    ], dtype=np.float32)
 
     R_BL = np.array([
         [1.00000000, 0.00000000, 0.00000000],
         [0.00000000, 0.86602540, 0.50000000],
         [0.00000000,-0.50000000, 0.86602540]
-    ], dtype=np.float64)
-    e_L_proj = np.array([1806.0, 0.0, -100.0], dtype=np.float64)
+    ], dtype=np.float32)
+    e_L_proj = np.array([1806.0, 0.0, -100.0], dtype=np.float32)
     phi_foot, hold_prev_pose = joint_targets_calculator._calc_phi_foot(R_WB, R_BL, e_L_proj)
     assert np.isclose(phi_foot, 30.992303, atol=1e-12)
     assert hold_prev_pose is False
 
 def test_calc_phi_foot_e_L_proj_w_zero_raises(joint_targets_calculator):
-    R_WB = np.eye(3, dtype=np.float64)
-    R_BL = np.eye(3, dtype=np.float64)
-    e_L_proj = np.array([0.0, 0.0, 0.0], dtype=np.float64)
+    R_WB = np.eye(3, dtype=np.float32)
+    R_BL = np.eye(3, dtype=np.float32)
+    e_L_proj = np.array([0.0, 0.0, 0.0], dtype=np.float32)
     with pytest.warns(RuntimeWarning, match="Hold previous pose"):
         phi_foot, hold_prev_pose = joint_targets_calculator._calc_phi_foot(R_WB, R_BL, e_L_proj)
     assert phi_foot is None
     assert hold_prev_pose is True
 
 def test_calc_phi_foot_e_L_proj_w_positive_raises(joint_targets_calculator):
-    R_WB = np.eye(3, dtype=np.float64)
-    R_BL = np.eye(3, dtype=np.float64)
-    e_L_proj = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+    R_WB = np.eye(3, dtype=np.float32)
+    R_BL = np.eye(3, dtype=np.float32)
+    e_L_proj = np.array([0.0, 0.0, 1.0], dtype=np.float32)
     with pytest.raises(ValueError, match="must < 0"):
         joint_targets_calculator._calc_phi_foot(R_WB, R_BL, e_L_proj)
 

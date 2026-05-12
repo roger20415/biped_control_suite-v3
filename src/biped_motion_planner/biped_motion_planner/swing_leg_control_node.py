@@ -3,7 +3,7 @@ import sys
 from geometry_msgs.msg import Quaternion, Vector3
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
-from std_msgs.msg import Float64MultiArray, String
+from std_msgs.msg import Float32MultiArray, String
 from typing import Optional
 from .config import Config, LegSide
 from .joint_targets_calculator import JointTargetsCalculator
@@ -78,12 +78,12 @@ class SwingLegControlNode(Node):
             qos_sensor
         )
         self._left_joint_target_publisher_ = self.create_publisher(
-            Float64MultiArray,
+            Float32MultiArray,
             '/biped/left_joint_target',
             10
         )
         self._right_joint_target_publisher_ = self.create_publisher(
-            Float64MultiArray,
+            Float32MultiArray,
             '/biped/right_joint_target',
             10
         )
@@ -143,7 +143,7 @@ class SwingLegControlNode(Node):
         self._p_W_raw["r_foot"] = msg
 
     def _pub_joint_pos(self, joint_pos: list[float], leg_side: str) -> None:
-        msg = Float64MultiArray()
+        msg = Float32MultiArray()
         msg.data = [float(i) for i in joint_pos]
         if leg_side == "left":
             self._left_joint_target_publisher_.publish(msg)

@@ -2,7 +2,7 @@ import numpy as np
 import rclpy
 import sys
 from rclpy.node import Node
-from std_msgs.msg import Float64MultiArray, String
+from std_msgs.msg import Float32MultiArray, String
 from .config import LegSide
 
 VALID_LEG_SIDES: tuple[str, ...] = ("left", "right")
@@ -20,24 +20,24 @@ class StanceLegControlNode(Node):
             10
         )
         self._stance_joint_target_subscriber_ = self.create_subscription(
-            Float64MultiArray,
+            Float32MultiArray,
             '/biped/stance_joint_target',
             self._stance_joint_target_callback,
             10
         )  # joint angles in degrees
 
         self._left_joint_target_publisher_ = self.create_publisher(
-            Float64MultiArray,
+            Float32MultiArray,
             '/biped/left_joint_target',
             10
         )  # in rad
         self._right_joint_target_publisher_ = self.create_publisher(
-            Float64MultiArray,
+            Float32MultiArray,
             '/biped/right_joint_target',
             10
         )  # in rad
 
-    def _stance_joint_target_callback(self, msg: Float64MultiArray) -> None:
+    def _stance_joint_target_callback(self, msg: Float32MultiArray) -> None:
         # joint angles in degrees
         if self._leg_side not in VALID_LEG_SIDES:
             self.get_logger().warn(f"Leg side is invalid: {self._leg_side}")
@@ -60,7 +60,7 @@ class StanceLegControlNode(Node):
             self._leg_side = msg.data
 
     def _pub_joint_pos(self, joint_pos: list[float], leg_side: str) -> None:
-        msg = Float64MultiArray()
+        msg = Float32MultiArray()
         msg.data = [float(i) for i in joint_pos]
         if leg_side == "left":
             self._left_joint_target_publisher_.publish(msg)  # in rad

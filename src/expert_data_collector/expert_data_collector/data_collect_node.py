@@ -8,7 +8,7 @@ from collections import deque
 from geometry_msgs.msg import Quaternion, Twist, Vector3
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
-from std_msgs.msg import Float64MultiArray, Float64
+from std_msgs.msg import Float32MultiArray, float32
 from sensor_msgs.msg import JointState
 
 TIMER_PERIOD_SEC = 0.05  #20 Hz
@@ -95,25 +95,25 @@ class DataCollectNode(Node):
             qos_sensor
         )
         self._left_joint_target_subscriber_ = self.create_subscription(
-            Float64MultiArray,
+            Float32MultiArray,
             '/biped/left_joint_target',# 5 joints
             self._left_joint_target_callback,
             qos_sensor
         )
         self._right_joint_target_subscriber_ = self.create_subscription(
-            Float64MultiArray,
+            Float32MultiArray,
             '/biped/right_joint_target',# 5 joints
             self._right_joint_target_callback,
             qos_sensor
         )
         self._counterweight_joint_targets_subscriber_ = self.create_subscription(
-            Float64MultiArray,
+            Float32MultiArray,
             '/counterweight/joint_targets', # [back, sacrum]
             self._counterweight_joint_targets_callback,
             qos_sensor
         )
         self._phase_num_subscriber_ = self.create_subscription(
-            Float64,
+            float32,
             '/biped/phase_num',
             self._phase_num_callback,
             qos_sensor
@@ -147,16 +147,16 @@ class DataCollectNode(Node):
     def _r_foot_translate_callback(self, msg: Vector3) -> None:
         self._p_W_r_foot_z = msg.z
 
-    def _left_joint_target_callback(self, msg: Float64MultiArray) -> None:
+    def _left_joint_target_callback(self, msg: Float32MultiArray) -> None:
         self._left_joint_targets = list(msg.data) if msg.data else []
         
-    def _right_joint_target_callback(self, msg: Float64MultiArray) -> None:
+    def _right_joint_target_callback(self, msg: Float32MultiArray) -> None:
         self._right_joint_targets = list(msg.data) if msg.data else []
         
-    def _counterweight_joint_targets_callback(self, msg: Float64MultiArray) -> None:
+    def _counterweight_joint_targets_callback(self, msg: Float32MultiArray) -> None:
         self._sacrum_joint_target = msg.data[1] if msg.data else None
 
-    def _phase_num_callback(self, msg: Float64) -> None:
+    def _phase_num_callback(self, msg: float32) -> None:
         self._phase_num = msg.data
 
     def on_timer(self) -> None:

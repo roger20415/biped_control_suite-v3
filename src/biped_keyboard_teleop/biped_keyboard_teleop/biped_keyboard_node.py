@@ -3,7 +3,7 @@ import rclpy
 import threading
 import time
 from rclpy.node import Node
-from std_msgs.msg import Float64MultiArray, String
+from std_msgs.msg import Float32MultiArray, String
 from typing import get_args, Literal, TypeAlias
 
 JOINT_NUMS: int = 10  # exclude back, sacrum
@@ -16,7 +16,7 @@ class BipedKeyboardNode(Node):
         super().__init__('biped_keyboard_node')
 
         self._joint_target_publisher_ = self.create_publisher(
-            Float64MultiArray,
+            Float32MultiArray,
             '/biped/joint_target',
             10
         )
@@ -67,7 +67,7 @@ class BipedKeyboardNode(Node):
         self._teleop_key_publisher_.publish(msg)
 
     def _pub_joint_pos(self, joint_pos) -> None:
-        msg = Float64MultiArray()
+        msg = Float32MultiArray()
         msg.data = [float(i) for i in joint_pos]
         self._joint_target_publisher_.publish(msg)
 

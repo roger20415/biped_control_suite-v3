@@ -36,7 +36,7 @@ class InitToSSManager:
         if self._swing_func is None:
             raise ValueError("Swing trajectory is not yet built.")
         s_val = float(s_value)
-        return np.array([float(f(s_val)) for f in self._swing_func], dtype=np.float64)
+        return np.array([float(f(s_val)) for f in self._swing_func], dtype=np.float32)
 
     def clear_phase_state(self) -> None:
         self._support_side = "undefined"

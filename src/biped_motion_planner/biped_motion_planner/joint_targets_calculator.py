@@ -17,7 +17,7 @@ class JointTargetsCalculator():
         self.p_B: dict[str, Vector3] = {}  # points in the Baselink frame
         self.p_L: dict[str, Vector3] = {}  # points in the Leg frame
         # points in the (u,w) coordinates in the Leg frame
-        self.p_uw: dict[str, NDArray[np.float64]] = {}
+        self.p_uw: dict[str, NDArray[np.float32]] = {}
         # +u-axis rotation in the Leg frame (in degrees)
         self.joint_phi: dict[str, float] = {}
         # -v-axis rotation in the Leg frame (in degrees)
@@ -54,32 +54,32 @@ class JointTargetsCalculator():
         self.joint_targets_rad.update(self._calc_and_clamp_joint_targets_rad())
         return hold_prev_pose, self.joint_targets_rad
 
-    def _transform_points_World_to_Baselink(self, T_BW: NDArray[np.float64]) -> dict[str, Vector3]:
+    def _transform_points_World_to_Baselink(self, T_BW: NDArray[np.float32]) -> dict[str, Vector3]:
         p_B_hip = LinearAlgebraUtils.transform_point(T_BW, self.p_W["hip"])
         p_B_foot = LinearAlgebraUtils.transform_point(T_BW, self.p_W["foot"])
         return {"hip": p_B_hip, "foot": p_B_foot}
 
     def _calc_WB_transforms(self,
                             q_W_baselink: Quaternion,
-                            p_W_baselink: Vector3) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+                            p_W_baselink: Vector3) -> tuple[NDArray[np.float32], NDArray[np.float32]]:
         R_WB = LinearAlgebraUtils.quaternion_to_rotation_matrix(q_W_baselink)
         T_WB = LinearAlgebraUtils.combine_transformation_matrix(
             R_WB, p_W_baselink)
         T_BW = LinearAlgebraUtils.invert_transformation_matrix(T_WB)
         return R_WB, T_BW
 
-    def _transform_points_Baselink_to_Leg(self, T_LB: NDArray[np.float64]) -> dict[str, Vector3]:
+    def _transform_points_Baselink_to_Leg(self, T_LB: NDArray[np.float32]) -> dict[str, Vector3]:
         p_L_foot = LinearAlgebraUtils.transform_point(T_LB, self.p_B["foot"])
         return {"foot": p_L_foot}
 
-    def _calc_BL_transforms(self) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
+    def _calc_BL_transforms(self) -> tuple[NDArray[np.float32], NDArray[np.float32], NDArray[np.float32]]:
         R_BL = self._calc_R_BL()
         T_BL = LinearAlgebraUtils.combine_transformation_matrix(
             R_BL, self.p_B["hip"])
         T_LB = LinearAlgebraUtils.invert_transformation_matrix(T_BL)
         return R_BL, T_LB
 
-    def _calc_R_BL(self) -> NDArray[np.float64]:
+    def _calc_R_BL(self) -> NDArray[np.float32]:
         """
         The Leg frame must follow the following three rules:
         1. The origin is located at the hip joint.
@@ -100,7 +100,7 @@ class JointTargetsCalculator():
 
         return np.column_stack((u, v, w))
 
-    def _transform_points_Leg_to_uw(self) -> dict[str, NDArray[np.float64]]:
+    def _transform_points_Leg_to_uw(self) -> dict[str, NDArray[np.float32]]:
         p_uw_foot = np.array([self.p_L["foot"].x, self.p_L["foot"].z])
         return {"foot": p_uw_foot}
 
@@ -111,7 +111,7 @@ class JointTargetsCalculator():
         phi_BL = TrigonometricUtils.normalize_angle_to_180(phi_BL)
         return phi_BL
 
-    def _project_gravity_to_uw_plane(self, R_BW: NDArray[np.float64], R_LB: NDArray[np.float64]) -> NDArray[np.float64]:
+    def _project_gravity_to_uw_plane(self, R_BW: NDArray[np.float32], R_LB: NDArray[np.float32]) -> NDArray[np.float32]:
         """
         Returns the projection of World -Z (gravity) onto the Leg's uw-plane,
         expressed as (u, v, w) scalar components.
@@ -136,13 +136,13 @@ class JointTargetsCalculator():
         e_L_proj = R_LB @ e_B_proj
         return e_L_proj
 
-    def _calc_p_uw_ankle(self, e_L_proj: NDArray[np.float64]) -> NDArray[np.float64]:
-        e_uw_proj: NDArray[np.float64] = e_L_proj[[0, 2]]
+    def _calc_p_uw_ankle(self, e_L_proj: NDArray[np.float32]) -> NDArray[np.float32]:
+        e_uw_proj: NDArray[np.float32] = e_L_proj[[0, 2]]
         e_uw_proj_norm = LinearAlgebraUtils.normalize_vec(e_uw_proj)
         d_uw_ankle = Config.ANKLE_LEN * e_uw_proj_norm
         return self.p_uw["foot"] - d_uw_ankle
 
-    def _calc_theta_calf(self) -> tuple[Optional[float], Optional[NDArray[np.float64]], Optional[NDArray[np.float64]], bool]:
+    def _calc_theta_calf(self) -> tuple[Optional[float], Optional[NDArray[np.float32]], Optional[NDArray[np.float32]], bool]:
         """
         Compute the calf (knee) angle in degrees and (optionally) a clamped ankle point.
 
@@ -211,7 +211,7 @@ class JointTargetsCalculator():
 
         return theta_calf, thigh_to_ankle_vec_uw, self.p_uw["ankle"], False
 
-    def _calc_theta_thigh(self, thigh_to_ankle_vec_uw: NDArray[np.float64]) -> float:
+    def _calc_theta_thigh(self, thigh_to_ankle_vec_uw: NDArray[np.float32]) -> float:
         alpha_thigh_to_ankle_vec_uw_rad = np.arctan2(
             thigh_to_ankle_vec_uw[1], thigh_to_ankle_vec_uw[0])
         theta_calf_rad = np.deg2rad(self.joint_theta["calf"])
@@ -228,7 +228,7 @@ class JointTargetsCalculator():
 
         return theta_thigh
 
-    def _calc_theta_ankle(self, e_L_proj: NDArray[np.float64]) -> float:
+    def _calc_theta_ankle(self, e_L_proj: NDArray[np.float32]) -> float:
         e_uw_proj = e_L_proj[[0, 2]]
         alpha_thigh = self.joint_theta["thigh"] + Config.HIP_THETA_UW
         alpha_calf = alpha_thigh + self.joint_theta["calf"]
@@ -238,8 +238,8 @@ class JointTargetsCalculator():
         theta_ankle = TrigonometricUtils.normalize_angle_to_180(theta_ankle)
         return theta_ankle
 
-    def _calc_phi_foot(self, R_WB: NDArray[np.float64], R_BL: NDArray[np.float64], e_L_proj: NDArray[np.float64]) -> tuple[float, bool]:
-        z_W = np.array([0, 0, 1], dtype=np.float64)
+    def _calc_phi_foot(self, R_WB: NDArray[np.float32], R_BL: NDArray[np.float32], e_L_proj: NDArray[np.float32]) -> tuple[float, bool]:
+        z_W = np.array([0, 0, 1], dtype=np.float32)
         w_B = R_BL[:, 2]
         w_W = R_WB @ w_B
         if e_L_proj[2] > 0:
@@ -252,7 +252,7 @@ class JointTargetsCalculator():
             )
             hold_prev_pose = True
             return None, hold_prev_pose
-        a_L_foot = np.array([-e_L_proj[2], 0, e_L_proj[0]], dtype=np.float64)
+        a_L_foot = np.array([-e_L_proj[2], 0, e_L_proj[0]], dtype=np.float32)
         a_W_foot = R_WB @ R_BL @ a_L_foot
 
         # When the uw plane rotates in the negative direction relative to the Baselink xz-plane

@@ -34,7 +34,7 @@ class DSToSSManager:
         self._support_side = side
         # TODO add support side logic
 
-    def build_stance_func(self, current_joint_target: NDArray[np.float64]) -> None:
+    def build_stance_func(self, current_joint_target: NDArray[np.float32]) -> None:
         raw_stance_of_s = (1 - self._s) * current_joint_target
         stance_of_s = np.empty(Config.JOINT_NUMS, dtype=object)
         for i in range(Config.JOINT_NUMS):
@@ -72,12 +72,12 @@ class DSToSSManager:
         self._swing_func = [sp.lambdify(self._s, expr, 'numpy')
                             for expr in swing_of_s]
 
-    def calc_swing_position(self, s_value: float) -> NDArray[np.float64]:
+    def calc_swing_position(self, s_value: float) -> NDArray[np.float32]:
         if self._swing_func is None:
             raise ValueError("Swing trajectory is not yet built.")
         if not (0.0 <= s_value <= 1.0):
             raise ValueError("s_value must be between 0 and 1.")
-        return np.array([float(f(s_value)) for f in self._swing_func], dtype=np.float64)
+        return np.array([float(f(s_value)) for f in self._swing_func], dtype=np.float32)
 
     def clear_phase_state(self) -> None:
         self._stance_side = "undefined"
@@ -98,25 +98,25 @@ class DSToSSManager:
     def _if_side_defined(self) -> bool:
         return self._stance_side in VALID_LEG_SIDES and self._swing_side in VALID_LEG_SIDES and self._support_side in VALID_SUPPORT_SIDES
 
-    def _calc_zFOOT_W_norm(self, q_W_foot: Quaternion) -> NDArray[np.float64]:
-        R_W_FOOT: NDArray[np.float64] = LinearAlgebraUtils.quaternion_to_rotation_matrix(
+    def _calc_zFOOT_W_norm(self, q_W_foot: Quaternion) -> NDArray[np.float32]:
+        R_W_FOOT: NDArray[np.float32] = LinearAlgebraUtils.quaternion_to_rotation_matrix(
             q_W_foot)
         zFOOT_W = R_W_FOOT[:, 2]
         return LinearAlgebraUtils.normalize_vec(zFOOT_W)
 
-    def _calc_yB_W_norm(self, q_W_baselink: Quaternion) -> NDArray[np.float64]:
-        R_WB: NDArray[np.float64] = LinearAlgebraUtils.quaternion_to_rotation_matrix(
+    def _calc_yB_W_norm(self, q_W_baselink: Quaternion) -> NDArray[np.float32]:
+        R_WB: NDArray[np.float32] = LinearAlgebraUtils.quaternion_to_rotation_matrix(
             q_W_baselink)
         yB_W = R_WB[:, 1]
         return LinearAlgebraUtils.normalize_vec(yB_W)
 
-    def _calc_swing_start(self, p_W_swingFoot: Vector3, zSwingFoot_W_norm: NDArray[np.float64]) -> NDArray[np.float64]:
+    def _calc_swing_start(self, p_W_swingFoot: Vector3, zSwingFoot_W_norm: NDArray[np.float32]) -> NDArray[np.float32]:
         p_W_swingFoot = np.array(
             [p_W_swingFoot.x, p_W_swingFoot.y, p_W_swingFoot.z], dtype=float)
         swing_start = p_W_swingFoot - Config.FOOT_LEN*zSwingFoot_W_norm
         return swing_start  # foot bottom
 
-    def _calc_swing_end(self, p_W_stanceFoot: Vector3, yB_W_norm: NDArray[np.float64]) -> NDArray[np.float64]:
+    def _calc_swing_end(self, p_W_stanceFoot: Vector3, yB_W_norm: NDArray[np.float32]) -> NDArray[np.float32]:
         p_W_stanceFoot = np.array(
             [p_W_stanceFoot.x, p_W_stanceFoot.y, p_W_stanceFoot.z], dtype=float)
         foot_to_center_distance = Config.ORIGIN_L_TARGET.y
@@ -129,7 +129,7 @@ class DSToSSManager:
         swing_end[2] = Config.SS_SWING_FOOT_HEIGHT
         return swing_end  # foot bottom
 
-    def _build_swing_of_s(self, swing_start: NDArray[np.float64], swing_end: NDArray[np.float64]) -> NDArray[object]:
+    def _build_swing_of_s(self, swing_start: NDArray[np.float32], swing_end: NDArray[np.float32]) -> NDArray[object]:
         raw_swing_of_s = swing_start*(1 - self._s) + swing_end*self._s
         swing_of_s = np.empty(3, dtype=object)
         for i in range(3):

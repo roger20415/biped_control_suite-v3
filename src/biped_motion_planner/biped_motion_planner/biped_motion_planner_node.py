@@ -11,7 +11,7 @@ from geometry_msgs.msg import Quaternion, Vector3
 from numpy.typing import NDArray
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
-from std_msgs.msg import Float64MultiArray, String
+from std_msgs.msg import Float32MultiArray, String
 
 from .config import Config, LegSide, SupportSide, VALID_LEG_SIDES, VALID_SUPPORT_SIDES, REQUIRED_P_W_KEYS, REQUIRED_Q_W_KEYS
 from .ds_to_ss_manager import DSToSSManager
@@ -84,16 +84,16 @@ class BipedMotionPlannerNode(Node):
         # in degrees
         self._next_stance_joint_pose: Optional[list[float]] = None
         # point in world frame
-        self._next_swing_position: Optional[NDArray[np.float64]] = None
+        self._next_swing_position: Optional[NDArray[np.float32]] = None
 
         self._p_W: dict[str, Optional[Vector3]] = {
             k: None for k in REQUIRED_P_W_KEYS}
         self._q_W: dict[str, Optional[Quaternion]] = {
             k: None for k in REQUIRED_Q_W_KEYS}
         # in degrees
-        self._left_joint_targets: Optional[NDArray[np.float64]] = None
+        self._left_joint_targets: Optional[NDArray[np.float32]] = None
         # in degrees
-        self._right_joint_targets: Optional[NDArray[np.float64]] = None
+        self._right_joint_targets: Optional[NDArray[np.float32]] = None
         qos_sensor = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             history=HistoryPolicy.KEEP_LAST,
@@ -136,13 +136,13 @@ class BipedMotionPlannerNode(Node):
             qos_sensor
         )
         self._left_joint_targets_subscriber_ = self.create_subscription(
-            Float64MultiArray,
+            Float32MultiArray,
             '/biped/left_joint_target',
             self._left_joint_targets_callback,
             qos_sensor  # in rad
         )
         self._right_joint_targets_subscriber_ = self.create_subscription(
-            Float64MultiArray,
+            Float32MultiArray,
             '/biped/right_joint_target',
             self._right_joint_targets_callback,
             qos_sensor  # in rad
@@ -163,7 +163,7 @@ class BipedMotionPlannerNode(Node):
             10
         )
         self._stance_joint_targets_publisher_ = self.create_publisher(
-            Float64MultiArray,
+            Float32MultiArray,
             '/biped/stance_joint_target',
             10
         )  # joint angles in degrees
@@ -173,7 +173,7 @@ class BipedMotionPlannerNode(Node):
             10
         )
         self._clock_sin_cos_publisher_ = self.create_publisher(
-            Float64MultiArray,
+            Float32MultiArray,
             '/biped/clock_sin_cos',
             10
         )
@@ -197,13 +197,13 @@ class BipedMotionPlannerNode(Node):
     def _r_foot_quat_callback(self, msg: Quaternion) -> None:
         self._q_W["r_foot"] = msg
 
-    def _left_joint_targets_callback(self, msg: Float64MultiArray) -> None:
+    def _left_joint_targets_callback(self, msg: Float32MultiArray) -> None:
         self._left_joint_targets = np.rad2deg(
-            np.array(msg.data, dtype=np.float64))
+            np.array(msg.data, dtype=np.float32))
 
-    def _right_joint_targets_callback(self, msg: Float64MultiArray) -> None:
+    def _right_joint_targets_callback(self, msg: Float32MultiArray) -> None:
         self._right_joint_targets = np.rad2deg(
-            np.array(msg.data, dtype=np.float64))
+            np.array(msg.data, dtype=np.float32))
 
     def _pub_support_side(self) -> None:
         if self.support_side not in VALID_SUPPORT_SIDES:
@@ -235,7 +235,7 @@ class BipedMotionPlannerNode(Node):
         if self._next_stance_joint_pose is None:
             self.get_logger().warn("next_stance_joint_pose is None")
             return
-        msg = Float64MultiArray()
+        msg = Float32MultiArray()
         msg.data = self._next_stance_joint_pose  # in degrees
         self._stance_joint_targets_publisher_.publish(msg)
 
@@ -250,7 +250,7 @@ class BipedMotionPlannerNode(Node):
         self._swing_target_publisher_.publish(msg)
 
     def _pub_clock_sin_cos(self) -> None:
-        msg = Float64MultiArray()
+        msg = Float32MultiArray()
         msg.data = [self._clock_sin, self._clock_cos]
         self._clock_sin_cos_publisher_.publish(msg)
 

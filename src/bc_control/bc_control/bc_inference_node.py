@@ -10,7 +10,7 @@ from collections import deque
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from geometry_msgs.msg import Quaternion, Twist, Vector3
-from std_msgs.msg import Float64MultiArray
+from std_msgs.msg import Float32MultiArray
 from sensor_msgs.msg import JointState
 
 from .actor_bc import ActorBC
@@ -175,13 +175,13 @@ class BcInferenceNode(Node):
 
         # === 3. Publishers (Action Targets) ===
         self._left_joint_target_pub_ = self.create_publisher(
-            Float64MultiArray, '/biped/left_joint_target', 10)
+            Float32MultiArray, '/biped/left_joint_target', 10)
         
         self._right_joint_target_pub_ = self.create_publisher(
-            Float64MultiArray, '/biped/right_joint_target', 10)
+            Float32MultiArray, '/biped/right_joint_target', 10)
         
         self._counterweight_joint_targets_pub_ = self.create_publisher(
-            Float64MultiArray, '/counterweight/joint_targets', 10)
+            Float32MultiArray, '/counterweight/joint_targets', 10)
 
         # === 4. Inference Timer ===
         self._timer = self.create_timer(TIMER_PERIOD_SEC, self.on_inference_step)
@@ -398,15 +398,15 @@ class BcInferenceNode(Node):
             self.get_logger().error(f"Action dim mismatch. Expected 11, got {targets.shape[0]}")
             return
         
-        msg_cw = Float64MultiArray()
+        msg_cw = Float32MultiArray()
         msg_cw.data = [0.0, float(targets[0])] 
         self._counterweight_joint_targets_pub_.publish(msg_cw)
 
-        msg_left = Float64MultiArray()
+        msg_left = Float32MultiArray()
         msg_left.data = [float(x) for x in targets[1:6]]
         self._left_joint_target_pub_.publish(msg_left)
 
-        msg_right = Float64MultiArray()
+        msg_right = Float32MultiArray()
         msg_right.data = [float(x) for x in targets[6:11]]
         self._right_joint_target_pub_.publish(msg_right)
     

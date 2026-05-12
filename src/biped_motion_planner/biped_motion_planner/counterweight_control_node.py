@@ -5,7 +5,7 @@ from geometry_msgs.msg import Quaternion, Vector3
 from numpy.typing import NDArray
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
-from std_msgs.msg import Float64MultiArray, String, Float64
+from std_msgs.msg import Float32MultiArray, String, float32
 from typing import Optional
 from .config import Config, SupportSide
 from .linear_algebra_utils import LinearAlgebraUtils
@@ -49,8 +49,8 @@ class CounterweightControlNode(Node):
     def __init__(self):
         super().__init__('counterweight_control_node')
         self._support_side: SupportSide = "undefined"
-        self._p_W_joints_com: dict[str, NDArray[np.float64]] = {
-            k: np.zeros(3, dtype=np.float64) for k in _COM_KEYS}
+        self._p_W_joints_com: dict[str, NDArray[np.float32]] = {
+            k: np.zeros(3, dtype=np.float32) for k in _COM_KEYS}
         
         self._lean_target: float = 0.0
         self._if_fall_down: bool = False
@@ -61,8 +61,8 @@ class CounterweightControlNode(Node):
         
         self._sacrum_target: float = 0.0
 
-        self._p_W_l_foot: Optional[NDArray[np.float64]] = None
-        self._p_W_r_foot: Optional[NDArray[np.float64]] = None
+        self._p_W_l_foot: Optional[NDArray[np.float32]] = None
+        self._p_W_r_foot: Optional[NDArray[np.float32]] = None
         self._q_W_l_foot: Optional[Quaternion] = None
         self._q_W_r_foot: Optional[Quaternion] = None
         self._q_W_baselink: Optional[Quaternion] = None
@@ -83,7 +83,7 @@ class CounterweightControlNode(Node):
             10
         )
         self._com_subscriber_ = self.create_subscription(
-            Float64MultiArray,
+            Float32MultiArray,
             '/com',
             self._com_callback,
             qos_sensor
@@ -96,7 +96,7 @@ class CounterweightControlNode(Node):
         )
 
         self._counterweight_publisher_ = self.create_publisher(
-            Float64MultiArray,
+            Float32MultiArray,
             '/counterweight/joint_targets',
             10
         )
@@ -133,18 +133,18 @@ class CounterweightControlNode(Node):
         )
 
         self._left_joint_target_publisher_ = self.create_publisher(
-            Float64MultiArray,
+            Float32MultiArray,
             '/biped/left_joint_target',
             10
         )
         self._right_joint_target_publisher_ = self.create_publisher(
-            Float64MultiArray,
+            Float32MultiArray,
             '/biped/right_joint_target',
             10
         )  # in rad
 
         self._phase_num_publisher_ = self.create_publisher(
-            Float64,
+            float32,
             '/biped/phase_num',
             10
         )
@@ -152,7 +152,7 @@ class CounterweightControlNode(Node):
         self._timer = self.create_timer(PUBLISH_PERIOD, self._timer_callback)
 
     def _pub_phase_num(self) -> None:
-        msg = Float64()
+        msg = float32()
         if self._phase == 1:
             msg.data = 0.0 / 6.0
         elif self._phase == 2:
@@ -166,7 +166,7 @@ class CounterweightControlNode(Node):
         self._phase_num_publisher_.publish(msg)
 
     def _pub_counterweight_pos(self, sacrum_angle: float) -> None:
-        msg = Float64MultiArray()
+        msg = Float32MultiArray()
         msg.data = [0.0, float(sacrum_angle)] 
         self._counterweight_publisher_.publish(msg)
 
@@ -175,8 +175,8 @@ class CounterweightControlNode(Node):
         Calculates and publishes the joint targets for both legs.
         Applies swing leg animation offsets to the non-supporting leg during Phase 3.
         """
-        left_msg = Float64MultiArray()
-        right_msg = Float64MultiArray()
+        left_msg = Float32MultiArray()
+        right_msg = Float32MultiArray()
         
         left_hip, left_foot = 0.0, 0.0
         right_hip, right_foot = 0.0, 0.0
@@ -226,8 +226,8 @@ class CounterweightControlNode(Node):
                 self.get_logger().error(
                     f"Invalid support side: {msg.data}. Keeping previous: {self._support_side}.")
 
-    def _com_callback(self, msg: Float64MultiArray) -> None:
-        data = np.asarray(msg.data, dtype=np.float64)
+    def _com_callback(self, msg: Float32MultiArray) -> None:
+        data = np.asarray(msg.data, dtype=np.float32)
         expected = 3 * len(_COM_KEYS)
         if data.size != expected:
             self.get_logger().error(
@@ -238,7 +238,7 @@ class CounterweightControlNode(Node):
         p_W_joints_com = {name: vecs[i] for i, name in enumerate(_COM_KEYS)}
         self._p_W_joints_com = p_W_joints_com
 
-    def _calc_p_W_biped_com(self, joints_com: dict[str, NDArray[np.float64]]) -> NDArray[np.float64]:
+    def _calc_p_W_biped_com(self, joints_com: dict[str, NDArray[np.float32]]) -> NDArray[np.float32]:
         total_mass: float = (
             Config.BASELINK_MASS + Config.BACK_MASS + Config.SACRUM_MASS +
             Config.HIP_MASS * 2 +
@@ -246,7 +246,7 @@ class CounterweightControlNode(Node):
             Config.CALF_MASS * 2 +
             Config.ANKLE_MASS * 2 +
             Config.FOOT_MASS * 2)
-        weighted_sum: NDArray[np.float64] = (
+        weighted_sum: NDArray[np.float32] = (
             joints_com["baselink"] * Config.BASELINK_MASS +
             joints_com["back"] * Config.BACK_MASS +
             joints_com["sacrum"] * Config.SACRUM_MASS +
@@ -256,10 +256,10 @@ class CounterweightControlNode(Node):
             (joints_com["l_ankle"] + joints_com["r_ankle"]) * Config.ANKLE_MASS +
             (joints_com["l_foot"] + joints_com["r_foot"]) * Config.FOOT_MASS
         )
-        p_W_biped_com: NDArray[np.float64] = weighted_sum / total_mass
+        p_W_biped_com: NDArray[np.float32] = weighted_sum / total_mass
         return p_W_biped_com
 
-    def _calc_p_S_support(self, support_side: str) -> NDArray[np.float64]:
+    def _calc_p_S_support(self, support_side: str) -> NDArray[np.float32]:
         if self._p_W_l_foot is None or self._p_W_r_foot is None:
             raise ValueError("Foot positions are not yet received.")
         if self._q_W_l_foot is None or self._q_W_r_foot is None:
@@ -277,8 +277,8 @@ class CounterweightControlNode(Node):
             raise ValueError("Support side is undefined.")
         return p_S_support
 
-    def _calc_xFOOT_W_norm(self, q_W_foot: Quaternion) -> NDArray[np.float64]:
-        R_W_FOOT: NDArray[np.float64] = LinearAlgebraUtils.quaternion_to_rotation_matrix(
+    def _calc_xFOOT_W_norm(self, q_W_foot: Quaternion) -> NDArray[np.float32]:
+        R_W_FOOT: NDArray[np.float32] = LinearAlgebraUtils.quaternion_to_rotation_matrix(
             q_W_foot)
         xFOOT_W = R_W_FOOT[:, 0]
         return LinearAlgebraUtils.normalize_vec(xFOOT_W)
@@ -375,10 +375,10 @@ class CounterweightControlNode(Node):
             self._if_fall_down = False
 
     def _l_foot_translate_callback(self, msg: Vector3) -> None:
-        self._p_W_l_foot = np.array([msg.x, msg.y, msg.z], dtype=np.float64)
+        self._p_W_l_foot = np.array([msg.x, msg.y, msg.z], dtype=np.float32)
 
     def _r_foot_translate_callback(self, msg: Vector3) -> None:
-        self._p_W_r_foot = np.array([msg.x, msg.y, msg.z], dtype=np.float64)
+        self._p_W_r_foot = np.array([msg.x, msg.y, msg.z], dtype=np.float32)
 
     def _l_foot_quat_callback(self, msg: Quaternion) -> None:
         self._q_W_l_foot = msg
@@ -386,22 +386,22 @@ class CounterweightControlNode(Node):
     def _r_foot_quat_callback(self, msg: Quaternion) -> None:
         self._q_W_r_foot = msg
 
-    def _calc_vec_S_com_to_support(self, support_side: str) -> NDArray[np.float64]:
-        p_W_biped_com: NDArray[np.float64] = self._calc_p_W_biped_com(
+    def _calc_vec_S_com_to_support(self, support_side: str) -> NDArray[np.float32]:
+        p_W_biped_com: NDArray[np.float32] = self._calc_p_W_biped_com(
             self._p_W_joints_com)
-        p_S_biped_com: NDArray[np.float64] = np.array(
-            [p_W_biped_com[0], p_W_biped_com[1], 0.0], dtype=np.float64)
-        p_S_support: NDArray[np.float64] = self._calc_p_S_support(support_side)
-        vec_S_com_to_support: NDArray[np.float64] = p_S_support - p_S_biped_com
+        p_S_biped_com: NDArray[np.float32] = np.array(
+            [p_W_biped_com[0], p_W_biped_com[1], 0.0], dtype=np.float32)
+        p_S_support: NDArray[np.float32] = self._calc_p_S_support(support_side)
+        vec_S_com_to_support: NDArray[np.float32] = p_S_support - p_S_biped_com
         return vec_S_com_to_support
 
-    def _calc_vec_S_sacrum_proj_norm(self) -> NDArray[np.float64]:
+    def _calc_vec_S_sacrum_proj_norm(self) -> NDArray[np.float32]:
         if self._q_W_baselink is None:
             raise ValueError("Baselink quaternion is not yet received.")
         R_WB = LinearAlgebraUtils.quaternion_to_rotation_matrix(
             self._q_W_baselink)
         vec_W_yB = R_WB[:, 1]
-        vec_S_yB = np.array([vec_W_yB[0], vec_W_yB[1], 0.0], dtype=np.float64)
+        vec_S_yB = np.array([vec_W_yB[0], vec_W_yB[1], 0.0], dtype=np.float32)
         vec_S_yB_length = np.linalg.norm(vec_S_yB)
         if vec_S_yB_length < 1e-10:
             return vec_S_yB
