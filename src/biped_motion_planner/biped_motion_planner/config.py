@@ -44,7 +44,7 @@ class Config:
 
     # link mass
     BASELINK_MASS: float = 0.0012584
-    BACK_MASS: float = 0.00333526
+    BACK_MASS: float = 0.00333526 #TODO real physic robot change to  the same as sacrum mass
     SACRUM_MASS: float = 0.00142664
     HIP_MASS: float = 0.00009
     THIGH_MASS: float = 0.0005
