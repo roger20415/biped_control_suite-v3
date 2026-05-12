@@ -8,7 +8,7 @@ from collections import deque
 from geometry_msgs.msg import Quaternion, Twist, Vector3
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
-from std_msgs.msg import Float32MultiArray, float32
+from std_msgs.msg import Float32MultiArray, Float32
 from sensor_msgs.msg import JointState
 
 TIMER_PERIOD_SEC = 0.05  #20 Hz
@@ -113,7 +113,7 @@ class DataCollectNode(Node):
             qos_sensor
         )
         self._phase_num_subscriber_ = self.create_subscription(
-            float32,
+            Float32,
             '/biped/phase_num',
             self._phase_num_callback,
             qos_sensor
@@ -156,7 +156,7 @@ class DataCollectNode(Node):
     def _counterweight_joint_targets_callback(self, msg: Float32MultiArray) -> None:
         self._sacrum_joint_target = msg.data[1] if msg.data else None
 
-    def _phase_num_callback(self, msg: float32) -> None:
+    def _phase_num_callback(self, msg: Float32) -> None:
         self._phase_num = msg.data
 
     def on_timer(self) -> None:

@@ -5,7 +5,7 @@ from geometry_msgs.msg import Quaternion, Vector3
 from numpy.typing import NDArray
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
-from std_msgs.msg import Float32MultiArray, String, float32
+from std_msgs.msg import Float32MultiArray, String, Float32
 from typing import Optional
 from .config import Config, SupportSide
 from .linear_algebra_utils import LinearAlgebraUtils
@@ -144,7 +144,7 @@ class CounterweightControlNode(Node):
         )  # in rad
 
         self._phase_num_publisher_ = self.create_publisher(
-            float32,
+            Float32,
             '/biped/phase_num',
             10
         )
@@ -152,7 +152,7 @@ class CounterweightControlNode(Node):
         self._timer = self.create_timer(PUBLISH_PERIOD, self._timer_callback)
 
     def _pub_phase_num(self) -> None:
-        msg = float32()
+        msg = Float32()
         if self._phase == 1:
             msg.data = 0.0 / 6.0
         elif self._phase == 2:
