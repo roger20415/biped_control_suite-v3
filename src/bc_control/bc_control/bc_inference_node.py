@@ -37,45 +37,7 @@ BODY_WEIGHTS_PATH  = os.path.join(SCRIPT_DIR, "model/bc_actor_body_weights.pth")
 HEAD_WEIGHTS_PATH  = os.path.join(SCRIPT_DIR, "model/bc_actor_head_weights.pth")
 ACTION_SCALES_PATH = os.path.join(SCRIPT_DIR, "action_scales.npy")
 
-
-class PhaseNumGenerator:
-    def __init__(self, publish_period: float = 0.05):
-        self.publish_period = publish_period
-        self.phase = 1
-        
-        self.stable_count = 0
-        self.transition_alpha = 0.0
-        self.transition_alpha_inc = 0.02
-        
-        self.phase3_tick = 0
-        self.phase3_ticks_per_stage = int(3.5 / self.publish_period)
-        
-    def step(self) -> float:
-        if self.phase == 1:
-            self.stable_count += 1
-            if self.stable_count >= 10:
-                self.phase = 2
-                self.stable_count = 0
-        elif self.phase == 2:
-            self.transition_alpha += self.transition_alpha_inc
-            if self.transition_alpha >= 1.0:
-                self.phase = 3
-                self.transition_alpha = 0.0
-        elif self.phase == 3:
-            self.phase3_tick += 1
-            if self.phase3_tick >= self.phase3_ticks_per_stage * 4:
-                self.phase3_tick = 0
-
-        if self.phase == 1:
-            return 0.0 / 6.0
-        elif self.phase == 2:
-            return 1.0 / 6.0
-        elif self.phase == 3:
-            continuous_stage = self.phase3_tick // self.phase3_ticks_per_stage
-            return (2.0 + continuous_stage) / 6.0
-        
-        return 0.0
-
+# 中文標註：已移除原本的 PhaseNumGenerator 類別，因為現在 phase_num 一律固定為 0.0
 
 class BcInferenceNode(Node):
     def __init__(self):
@@ -94,7 +56,7 @@ class BcInferenceNode(Node):
         self._p_W_l_foot_z: Optional[float] = None
         self._p_W_r_foot_z: Optional[float] = None
 
-        self._phase_generator = PhaseNumGenerator(TIMER_PERIOD_SEC)
+        # 中文標註：移除了 self._phase_generator 的初始化
 
         # === 2. Load Normalization Parameters ===
         self._obs_mean = np.array(PreprocessCfg.OBS_MEAN, dtype=np.float32)
@@ -255,7 +217,8 @@ class BcInferenceNode(Node):
         if not self._check_states_ready():
             return
 
-        current_phase_num = self._phase_generator.step()
+        # 中文標註：依照需求，將 current_phase_num 強制設為 0.0
+        current_phase_num = 0.0
 
         # 2. Get Normalized Sensor Data
         raw_sensor_obs = self._get_current_raw_state()

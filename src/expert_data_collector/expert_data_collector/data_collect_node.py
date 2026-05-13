@@ -11,7 +11,7 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from std_msgs.msg import Float32MultiArray, Float32
 from sensor_msgs.msg import JointState
 
-TIMER_PERIOD_SEC = 0.05  #20 Hz
+TIMER_PERIOD_SEC = 0.05  # 20 Hz
 
 BASELINK_HEIGHT_BOUND = (0.0210, 0.0280) # must be consistent with IsaaclabRlEnvCfg
 FOOT_CONTACT_THRESHOLD = 0.0014 # must be consistent with IsaaclabRlEnvCfg
@@ -19,7 +19,9 @@ FOOT_CONTACT_THRESHOLD = 0.0014 # must be consistent with IsaaclabRlEnvCfg
 PRE_STATE_QUEUE_LEN = 2
 DIRTY_DATA_ROLLBACK_N = 30
 DATA_BUFFER_SIZE = 1000
-SAVE_FILE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data/expert_data.npz")
+MAX_COLLECT_SAMPLES = 1800
+
+SAVE_FILE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data/expert_data_static_contain_start.npz")
 
 
 class DataCollectNode(Node):
@@ -34,14 +36,12 @@ class DataCollectNode(Node):
         self._twist_W_baselink: Optional[list[float]] = None
         self._joint_positions: Optional[List[float]] = None
         self._joint_velocities: Optional[List[float]] = None
-        self._phase_num: Optional[float] = None
 
-        # for actions
-        self._sacrum_joint_target: Optional[float] = None
-        self._left_joint_targets: Optional[List[float]] = None
-        self._right_joint_targets: Optional[List[float]] = None
+        self._phase_num: float = 0.0
+        self._sacrum_joint_target: float = 0.0
+        self._left_joint_targets: List[float] = [0.0] * 5
+        self._right_joint_targets: List[float] = [0.0] * 5
 
-        # === BC data buffer & saving config ===
         self._obs_dim: Optional[int] = None
         self._act_dim: Optional[int] = None
         self._obs_buffer: List[np.ndarray] = []
@@ -50,8 +50,9 @@ class DataCollectNode(Node):
         self._state_history: deque = deque(maxlen=PRE_STATE_QUEUE_LEN)
         self._action_history: deque = deque(maxlen=PRE_STATE_QUEUE_LEN)
 
-        # === episode state ===
         self._is_in_episode: bool = False
+
+        self._total_collected_samples: int = 0
 
         qos_sensor = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -94,31 +95,6 @@ class DataCollectNode(Node):
             self._r_foot_translate_callback,
             qos_sensor
         )
-        self._left_joint_target_subscriber_ = self.create_subscription(
-            Float32MultiArray, 
-            '/biped/left_joint_target',# 5 joints # from control suite
-            self._left_joint_target_callback,
-            qos_sensor
-        )
-        self._right_joint_target_subscriber_ = self.create_subscription(
-            Float32MultiArray, 
-            '/biped/right_joint_target',# 5 joints # from control suite
-            self._right_joint_target_callback,
-            qos_sensor
-        )
-        self._counterweight_joint_targets_subscriber_ = self.create_subscription(
-            Float32MultiArray,
-            '/counterweight/joint_targets', # [back, sacrum] # from control suite
-            self._counterweight_joint_targets_callback,
-            qos_sensor
-        )
-        self._phase_num_subscriber_ = self.create_subscription(
-            Float32,
-            '/biped/phase_num', # from control suite
-            self._phase_num_callback,
-            qos_sensor
-        )
-
         self._timer = self.create_timer(TIMER_PERIOD_SEC, self.on_timer)
 
     def _baselink_translate_callback(self, msg: Vector3) -> None:
@@ -146,18 +122,6 @@ class DataCollectNode(Node):
 
     def _r_foot_translate_callback(self, msg: Vector3) -> None:
         self._p_W_r_foot_z = msg.z
-
-    def _left_joint_target_callback(self, msg: Float32MultiArray) -> None:
-        self._left_joint_targets = list(msg.data) if msg.data else []
-        
-    def _right_joint_target_callback(self, msg: Float32MultiArray) -> None:
-        self._right_joint_targets = list(msg.data) if msg.data else []
-        
-    def _counterweight_joint_targets_callback(self, msg: Float32MultiArray) -> None:
-        self._sacrum_joint_target = msg.data[1] if msg.data else None
-
-    def _phase_num_callback(self, msg: Float32) -> None:
-        self._phase_num = msg.data
 
     def on_timer(self) -> None:
         if not self._check_states_ready():
@@ -212,13 +176,14 @@ class DataCollectNode(Node):
         current_state_list.append(self._check_foot_contact(self._p_W_l_foot_z))
         ## 7 right foot contact
         current_state_list.append(self._check_foot_contact(self._p_W_r_foot_z))
+
         current_state = np.asarray(current_state_list, dtype=np.float32)
 
-        # compose actions
         act_list: list[float] = []
         act_list.append(float(self._sacrum_joint_target))
         act_list.extend([float(x) for x in self._left_joint_targets])
         act_list.extend([float(x) for x in self._right_joint_targets])
+        
         current_action = np.asarray(act_list, dtype=np.float32)
 
         # update state history
@@ -260,30 +225,45 @@ class DataCollectNode(Node):
 
         # protect against dimension mismatch
         if final_obs.shape[0] != self._obs_dim or current_action.shape[0] != self._act_dim:
+            print(f"Dimension mismatch! Obs: {final_obs.shape[0]}!={self._obs_dim}, Act: {current_action.shape[0]}!={self._act_dim}")
             return
 
         # add in buffer
         self._obs_buffer.append(final_obs)
         self._act_buffer.append(current_action)
 
+        self._total_collected_samples += 1
+
+        if self._total_collected_samples >= MAX_COLLECT_SAMPLES:
+            print(f"已達到最大蒐集數量 {MAX_COLLECT_SAMPLES} 筆，準備結束程式...")
+            raise SystemExit
+
         # if buffer full, flush to NPZ
         if len(self._obs_buffer) >= DATA_BUFFER_SIZE + DIRTY_DATA_ROLLBACK_N:
             print("flush into npz...")
             self._flush_npz()
 
-    def _flush_npz(self) -> None:
+    def _flush_npz(self, force_all: bool = False) -> None:
+        """Flushes buffered demonstration data to NPZ file."""
         # check buffer validity
         if not self._obs_buffer:
             return
-        if len(self._obs_buffer) <= DIRTY_DATA_ROLLBACK_N:
-            print("Not enough clean data, skip flushing.")
-            return
-        
-        # split dirty data and clean data
-        data_to_flush_obs = self._obs_buffer[: -DIRTY_DATA_ROLLBACK_N]
-        data_to_flush_act = self._act_buffer[: -DIRTY_DATA_ROLLBACK_N]
-        data_to_keep_obs = self._obs_buffer[-DIRTY_DATA_ROLLBACK_N:]
-        data_to_keep_act = self._act_buffer[-DIRTY_DATA_ROLLBACK_N:]
+            
+        if force_all:
+            data_to_flush_obs = self._obs_buffer
+            data_to_flush_act = self._act_buffer
+            data_to_keep_obs = []
+            data_to_keep_act = []
+        else:
+            if len(self._obs_buffer) <= DIRTY_DATA_ROLLBACK_N:
+                print("Not enough clean data, skip flushing.")
+                return
+            
+            # split dirty data and clean data
+            data_to_flush_obs = self._obs_buffer[: -DIRTY_DATA_ROLLBACK_N]
+            data_to_flush_act = self._act_buffer[: -DIRTY_DATA_ROLLBACK_N]
+            data_to_keep_obs = self._obs_buffer[-DIRTY_DATA_ROLLBACK_N:]
+            data_to_keep_act = self._act_buffer[-DIRTY_DATA_ROLLBACK_N:]
 
         obs_arr = np.stack(data_to_flush_obs, axis=0).astype(np.float32)
         act_arr = np.stack(data_to_flush_act, axis=0).astype(np.float32)
@@ -299,18 +279,23 @@ class DataCollectNode(Node):
                 obs_out, act_out = obs_arr, act_arr
         else:
             obs_out, act_out = obs_arr, act_arr
+            
         np.savez(SAVE_FILE_PATH, obs=obs_out, actions=act_out)
         print(f"Saved {obs_out.shape[0]} samples to {SAVE_FILE_PATH}")
 
         # reset buffers
         self._obs_buffer = data_to_keep_obs
         self._act_buffer = data_to_keep_act
-        print(f"Flushed {len(obs_arr)} samples. "
-              f"Kept {len(self._obs_buffer)} (n={DIRTY_DATA_ROLLBACK_N}) in buffer.")
+        
+        if force_all:
+            print(f"Final flush complete. Total samples recorded: {obs_out.shape[0]}")
+        else:
+            print(f"Flushed {len(obs_arr)} samples. "
+                  f"Kept {len(self._obs_buffer)} (n={DIRTY_DATA_ROLLBACK_N}) in buffer.")
 
     def destroy_node(self):
         try:
-            self._flush_npz()
+            self._flush_npz(force_all=True)
         finally:
             super().destroy_node()
 
@@ -321,24 +306,20 @@ class DataCollectNode(Node):
             self._p_W_r_foot_z is None or
             not self._twist_W_baselink or
             not self._joint_positions or
-            not self._joint_velocities or
-            self._phase_num is None):
+            not self._joint_velocities):
             return False
         return True
     
     def _check_actions_ready(self) -> bool:
-        if (self._sacrum_joint_target is None or
-            not self._left_joint_targets or
-            not self._right_joint_targets):
-            return False
         return True
 
     def _clean_actions_data(self) -> None:
-        self._sacrum_joint_target = None
-        self._left_joint_targets = None
-        self._right_joint_targets = None
+        self._sacrum_joint_target = 0.0
+        self._left_joint_targets = [0.0] * 5
+        self._right_joint_targets = [0.0] * 5
 
     def _quaternion_to_euler(self, q: Quaternion) -> list[float]:
+        """Converts ROS 2 geometry_msgs/Quaternion to euler angles [roll, pitch, yaw]."""
         x, y, z, w = q.x, q.y, q.z, q.w
         sinr_cosp = 2 * (w * x + y * z)
         cosr_cosp = 1 - 2 * (x * x + y * y)
@@ -354,25 +335,30 @@ class DataCollectNode(Node):
         return [roll, pitch, yaw]
 
     def _check_foot_contact(self, foot_z: float) -> float:
+        """Determines foot contact state based on height threshold."""
         return 1.0 if foot_z < FOOT_CONTACT_THRESHOLD else -1.0
     
     def _check_data_in_episode(self, baselink_z: float) -> bool:
+        """Validates if the robot is within normal operational bounds."""
         if BASELINK_HEIGHT_BOUND[0] < baselink_z < BASELINK_HEIGHT_BOUND[1]:
             return True
         return False
 
     def _rollback_buffers(self, n: int) -> None:
-            if n <= 0:
-                return
-            num_in_buffer = len(self._obs_buffer)
-            if num_in_buffer == 0:
-                return
-            if num_in_buffer < n:
-                self._obs_buffer.clear()
-                self._act_buffer.clear()
-            else:
-                self._obs_buffer = self._obs_buffer[:-n]
-                self._act_buffer = self._act_buffer[:-n]
+        """Removes the last N dirty data points from buffers upon episode failure."""
+        if n <= 0:
+            return
+        num_in_buffer = len(self._obs_buffer)
+        if num_in_buffer == 0:
+            return
+        if num_in_buffer < n:
+            self._total_collected_samples -= num_in_buffer
+            self._obs_buffer.clear()
+            self._act_buffer.clear()
+        else:
+            self._total_collected_samples -= n
+            self._obs_buffer = self._obs_buffer[:-n]
+            self._act_buffer = self._act_buffer[:-n]
 
 def main(args=None):
 
@@ -380,7 +366,7 @@ def main(args=None):
     node = DataCollectNode()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, SystemExit):
         pass
     finally:
         node.destroy_node()

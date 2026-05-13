@@ -9,7 +9,7 @@ obs_header = (
     "l_foot_contact,r_foot_contact"
 )
 
-f = np.load("data/expert_data.npz", allow_pickle=True)
+f = np.load("data/expert_data_static_contain_start.npz", allow_pickle=True)
 print("keys:", f.files)
 
 actions = f["actions"]   # shape=(1324, 11)
