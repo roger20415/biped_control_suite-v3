@@ -8,7 +8,8 @@ from collections import deque
 from geometry_msgs.msg import Quaternion, Twist, Vector3
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
-from std_msgs.msg import Float32MultiArray, Float32
+# 提示：引入 Bool 以接收啟用/停用訊號
+from std_msgs.msg import Float32MultiArray, Float32, Bool
 from sensor_msgs.msg import JointState
 
 TIMER_PERIOD_SEC = 0.05  #20 Hz
@@ -26,6 +27,9 @@ class DataCollectNode(Node):
     def __init__(self):
         super().__init__('data_collect_node')
         
+        # 新增：控制是否允許蒐集資料的旗標，預設為 False
+        self._is_collection_enabled: bool = False
+
         # for states
         self._p_W_baselink_z: Optional[float] = None
         self._q_W_baselink: Optional[Quaternion] = None
@@ -58,6 +62,15 @@ class DataCollectNode(Node):
             history=HistoryPolicy.KEEP_LAST,
             depth=10
         )
+        
+        # 新增：訂閱 /data_collection/enable 的 Subscriber
+        self._collection_enable_subscriber_ = self.create_subscription(
+            Bool,
+            '/data_collection/enable',
+            self._collection_enable_callback,
+            qos_sensor
+        )
+
         self._baselink_translate_subscriber_ = self.create_subscription(
             Vector3,
             '/baselink/translate', # from isaacsim
@@ -121,6 +134,20 @@ class DataCollectNode(Node):
 
         self._timer = self.create_timer(TIMER_PERIOD_SEC, self.on_timer)
 
+    # 新增：處理啟用/停用訊號的 callback
+    def _collection_enable_callback(self, msg: Bool) -> None:
+        """
+        Callback to enable or disable data collection based on the received boolean flag.
+        When disabled, the current episode state is reset to ensure a fresh start upon re-enabling.
+        """
+        self._is_collection_enabled = msg.data
+        if self._is_collection_enabled:
+            print("Data collection ENABLED.")
+        else:
+            print("Data collection DISABLED. Pausing collection.")
+            # 當收到停用訊號時，將 episode 標記為 False，確保下次啟動時會重新初始化 history
+            self._is_in_episode = False
+
     def _baselink_translate_callback(self, msg: Vector3) -> None:
         self._p_W_baselink_z = msg.z
 
@@ -160,6 +187,10 @@ class DataCollectNode(Node):
         self._phase_num = msg.data
 
     def on_timer(self) -> None:
+        # 新增：如果尚未啟用收集，則直接跳出，暫停所有收集動作
+        if not self._is_collection_enabled:
+            return
+
         if not self._check_states_ready():
             print("Waiting for all state data to be ready...")
             if self._is_in_episode:

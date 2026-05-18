@@ -5,20 +5,15 @@ from geometry_msgs.msg import Quaternion, Vector3
 from numpy.typing import NDArray
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
-from std_msgs.msg import Float32MultiArray, String, Float32
+from std_msgs.msg import Float32MultiArray, String, Float32, Bool
 from typing import Optional
 from .config import Config, SupportSide
 from .linear_algebra_utils import LinearAlgebraUtils
 
-
 _COM_KEYS: tuple[str, ...] = (
-    "baselink",
-    "back", "sacrum",
-    "l_hip", "r_hip",
-    "l_thigh", "r_thigh",
-    "l_calf", "r_calf",
-    "l_ankle", "r_ankle",
-    "l_foot", "r_foot",
+    "baselink", "back", "sacrum", "l_hip", "r_hip",
+    "l_thigh", "r_thigh", "l_calf", "r_calf",
+    "l_ankle", "r_ankle", "l_foot", "r_foot",
 )
 # in meters
 ERR_MAX_ERR: float = 45/10000  # error_signed value max limit
@@ -28,22 +23,20 @@ LEAN_MIN_STEP: float = float(np.deg2rad(0.04))
 LEAN_MAX_STEP: float = float(np.deg2rad(1.0))
 LEAN_STEP_ALPHA: float = 0.8  # 0.5~1.5：<1 sensitive；>1 preserve
 
-SACRUM_MIN_STEP: float = float(np.deg2rad(0.04))
-SACRUM_MAX_STEP: float = float(np.deg2rad(3.0))
-SACRUM_STEP_ALPHA: float = 1.5  # 0.5~1.5：<1 sensitive；>1 preserve
-
-TRANSITION_ALPHA_INCREMENT: float = 0.02  # Increment for transition alpha per timer tick
-MAX_ALPHA = 1.0
-
 PUBLISH_PERIOD: float = 0.05  # in seconds
 VALID_SUPPORT_SIDES: tuple[str, ...] = ("left", "right", "mid")
 
-
+SACRUM_MIN_STEP: float = float(np.deg2rad(0.04))
+SACRUM_MAX_STEP: float = float(np.deg2rad(3.0))
+SACRUM_STEP_ALPHA: float = 1.5  # 0.5~1.5：<1 sensitive；>1 preserve
 SWING_LIFT_HIP_PITCH_MAG: float = float(np.deg2rad(-25.0))   # Thigh lift magnitude
 SWING_LIFT_KNEE_MAG: float = float(np.deg2rad(50.0))        # Calf bend magnitude
 SWING_LIFT_ANKLE_PITCH_MAG: float = float(np.deg2rad(-25.0)) # Ankle compensation magnitude
 SWING_ABDUCT_HIP_ROLL_MAG: float = float(np.deg2rad(35.0))  # Hip roll abduction magnitude
 PHASE3_TICKS_PER_STAGE: int = int(2.0 / PUBLISH_PERIOD)     # 10 ticks (0.5s) per stage
+
+# 定義收集資料的時間常數
+HOLD_TICKS: int = int(0.5 / PUBLISH_PERIOD)  # 0.5秒 = 10 ticks (20Hz)
 
 class CounterweightControlNode(Node):
     def __init__(self):
@@ -55,11 +48,17 @@ class CounterweightControlNode(Node):
         self._lean_target: float = 0.0
         self._if_fall_down: bool = False
 
-        self._phase: int = 1  # 1: Parallelogram, 2: Transition, 3: Pelvic Tilt
-        self._transition_alpha: float = 0.0  # 0.0 full parallelogram，1.0 full pelvic tilt(MAX ALPHA)
+        # --- 全新改寫的狀態機變數 ---
+        # 0: 站立準備期(0.5s), 1: 轉移重心, 2: 轉移後維持期(0.5s), 3: 收集完畢結束
+        self._phase: int = 0  
+        self._state_ticks: int = 0
+        self._initial_err_signed: Optional[float] = None
+        self._phase_num_val: float = 0.0
         self._stable_count: int = 0
         
+        # 為了保持發布格式正確，保留舊有變數
         self._sacrum_target: float = 0.0
+        self._transition_alpha: float = 0.0  
 
         self._p_W_l_foot: Optional[NDArray[np.float32]] = None
         self._p_W_r_foot: Optional[NDArray[np.float32]] = None
@@ -67,103 +66,142 @@ class CounterweightControlNode(Node):
         self._q_W_r_foot: Optional[Quaternion] = None
         self._q_W_baselink: Optional[Quaternion] = None
 
-        self._phase3_tick: int = 0
-        self._phase3_cycle: int = 0
-        self._swing_offsets: list[float] = [0.0, 0.0, 0.0, 0.0]  # [hip_roll, hip_pitch, knee, ankle_pitch]
+        self._swing_offsets: list[float] = [0.0, 0.0, 0.0, 0.0]
 
         qos_sensor = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             history=HistoryPolicy.KEEP_LAST,
             depth=10
         )
-        self._support_side_subscriber_ = self.create_subscription(
-            String,
-            '/biped/support_side',
-            self._support_side_callback,
-            10
-        )
-        self._com_subscriber_ = self.create_subscription(
-            Float32MultiArray,
-            '/com',
-            self._com_callback,
-            qos_sensor
-        )
-        self._baselink_quat_subscriber_ = self.create_subscription(
-            Quaternion,
-            '/baselink/quat',
-            self._baselink_quat_callback,
-            qos_sensor
-        )
-
-        self._counterweight_publisher_ = self.create_publisher(
-            Float32MultiArray,
-            '/counterweight/joint_targets',
-            10
-        )
-
-        self._baselink_translate_subscriber_ = self.create_subscription(
-            Vector3,
-            '/baselink/translate',
-            self._baselink_translate_callback,
-            qos_sensor
-        )
-        self._l_foot_translate_subscriber_ = self.create_subscription(
-            Vector3,
-            '/l_foot/translate',
-            self._l_foot_translate_callback,
-            qos_sensor
-        )
-        self._r_foot_translate_subscriber_ = self.create_subscription(
-            Vector3,
-            '/r_foot/translate',
-            self._r_foot_translate_callback,
-            qos_sensor
-        )
-        self._l_foot_quat_subscriber_ = self.create_subscription(
-            Quaternion,
-            '/l_foot/quat',
-            self._l_foot_quat_callback,
-            qos_sensor
-        )
-        self._r_foot_quat_subscriber_ = self.create_subscription(
-            Quaternion,
-            '/r_foot/quat',
-            self._r_foot_quat_callback,
-            qos_sensor
-        )
-
-        self._left_joint_target_publisher_ = self.create_publisher(
-            Float32MultiArray,
-            '/biped/left_joint_target',
-            10
-        )
-        self._right_joint_target_publisher_ = self.create_publisher(
-            Float32MultiArray,
-            '/biped/right_joint_target',
-            10
-        )  # in rad
-
-        self._phase_num_publisher_ = self.create_publisher(
-            Float32,
-            '/biped/phase_num',
-            10
-        )
+        
+        # [保留你原本所有的 Subscribers 與 Publishers 定義...]
+        self._support_side_subscriber_ = self.create_subscription(String, '/biped/support_side', self._support_side_callback, 10)
+        self._com_subscriber_ = self.create_subscription(Float32MultiArray, '/com', self._com_callback, qos_sensor)
+        self._baselink_quat_subscriber_ = self.create_subscription(Quaternion, '/baselink/quat', self._baselink_quat_callback, qos_sensor)
+        self._counterweight_publisher_ = self.create_publisher(Float32MultiArray, '/counterweight/joint_targets', 10)
+        self._baselink_translate_subscriber_ = self.create_subscription(Vector3, '/baselink/translate', self._baselink_translate_callback, qos_sensor)
+        self._l_foot_translate_subscriber_ = self.create_subscription(Vector3, '/l_foot/translate', self._l_foot_translate_callback, qos_sensor)
+        self._r_foot_translate_subscriber_ = self.create_subscription(Vector3, '/r_foot/translate', self._r_foot_translate_callback, qos_sensor)
+        self._l_foot_quat_subscriber_ = self.create_subscription(Quaternion, '/l_foot/quat', self._l_foot_quat_callback, qos_sensor)
+        self._r_foot_quat_subscriber_ = self.create_subscription(Quaternion, '/r_foot/quat', self._r_foot_quat_callback, qos_sensor)
+        self._left_joint_target_publisher_ = self.create_publisher(Float32MultiArray, '/biped/left_joint_target', 10)
+        self._right_joint_target_publisher_ = self.create_publisher(Float32MultiArray, '/biped/right_joint_target', 10)
+        self._phase_num_publisher_ = self.create_publisher(Float32, '/biped/phase_num', 10)
+        self._data_collect_ctrl_publisher_ = self.create_publisher(Bool, '/data_collection/enable', 10)
 
         self._timer = self.create_timer(PUBLISH_PERIOD, self._timer_callback)
 
     def _pub_phase_num(self) -> None:
         msg = Float32()
-        if self._phase == 1:
-            msg.data = 0.0 / 6.0
-        elif self._phase == 2:
-            msg.data = 1.0 / 6.0
-        elif self._phase == 3:
-            stage = self._phase3_tick // PHASE3_TICKS_PER_STAGE
-            msg.data = (2.0 + stage) / 6.0
-        else:
-            msg.data = 0.0
-
+        msg.data = float(self._phase_num_val)
         self._phase_num_publisher_.publish(msg)
+
+    # [... 保留 _pub_counterweight_pos, _pub_leg_targets, 各種 callbacks 與數學計算 ...]
+    # (此處為節省版面，請直接保留你原本的 _pub_leg_targets 與 _calc_ 系列函數)
+    
+    def _support_side_callback(self, msg: String) -> None:
+        if msg.data != self._support_side:
+            self.get_logger().info(f"Switching support side from {self._support_side} to {msg.data}.")
+            if msg.data in ("left", "right", "mid"):
+                self._support_side = msg.data
+                # 當支援腳改變，重置狀態機回到 Phase 0
+                self._phase = 0
+                self._state_ticks = 0
+                self._initial_err_signed = None
+                self._phase_num_val = 0.0
+                self._lean_target = 0.0
+                self._stable_count = 0
+                
+                # 提示：在動作最一開始（支援腳切換、狀態重置時），發送 True 讓外部 Node 開始蒐集資料
+                self._pub_data_collect_ctrl(True)
+                self.get_logger().info("Sent START signal to data collect node.")
+            else:
+                self.get_logger().error(f"Invalid support side: {msg.data}. Keeping previous: {self._support_side}.")
+    
+    def _timer_callback(self) -> None:
+        if self._support_side not in VALID_SUPPORT_SIDES:
+            self.get_logger().warn("Support side is invalid.")
+            return
+        support_side: str = self._support_side
+        
+        if self._if_fall_down:
+            return
+            
+        if self._q_W_baselink is None:
+            self.get_logger().warn("Waiting for /baselink/quat ...")
+            return
+
+        try:
+            vec_S_com_to_support = self._calc_vec_S_com_to_support(support_side)
+            vec_S_sacrum_proj_norm = self._calc_vec_S_sacrum_proj_norm()
+            err_signed = float(np.dot(vec_S_com_to_support[:2], vec_S_sacrum_proj_norm[:2]))
+            
+            # self.get_logger().info(f"err_signed: {err_signed*10000:.6f}")
+
+            # 狀態機核心邏輯
+            if self._phase == 0:
+                # [Phase 0] 雙腳直立準備期 (等待 0.5 秒)
+                self._phase_num_val = 0.0
+                self._state_ticks += 1
+                
+                if self._state_ticks >= HOLD_TICKS:
+                    self.get_logger().info("[DATA COLLECTION] Init hold complete (0.5s). Starting Parallelogram.")
+                    self._phase = 1
+                    self._state_ticks = 0
+                    self._initial_err_signed = err_signed  # 紀錄轉移初期的基準誤差
+            
+            elif self._phase == 1:
+                # [Phase 1] 平行四邊形法重心轉移
+                self._lean_target = self._calc_lean_target(err_signed)
+                
+                # 計算轉移進度 (根據初始誤差消除的比例)
+                if self._initial_err_signed is not None and abs(self._initial_err_signed) > 1e-6:
+                    progress = 1.0 - (abs(err_signed) / abs(self._initial_err_signed))
+                    progress = float(np.clip(progress, 0.0, 1.0))
+                else:
+                    progress = 1.0
+                
+                # 更新 state-driven phase_num
+                self._phase_num_val = 0.25 * progress
+                
+                # 檢查是否完成重心轉移
+                if abs(err_signed) < LEAN_MOVE_THRESHOLD:
+                    self._stable_count += 1
+                    if self._stable_count >= 5: # 連續穩定 5 ticks (0.25秒) 才算真正完成
+                        self.get_logger().info(f"[DATA COLLECTION] Parallelogram complete. phase_num reached {self._phase_num_val:.3f}. Entering post-hold.")
+                        self._phase = 2
+                        self._state_ticks = 0
+                else:
+                    self._stable_count = 0
+
+            elif self._phase == 2:
+                # [Phase 2] 轉移完成後維持期 (等待 0.5 秒)
+                self._phase_num_val = 0.25
+                self._state_ticks += 1
+                
+                if self._state_ticks >= HOLD_TICKS:
+                    self.get_logger().info("[DATA COLLECTION] Post-hold complete (0.5s). Data collection target reached! Exiting node.")
+                    self._phase = 3
+            
+            elif self._phase == 3:
+                # [Phase 3] 停止收集無效資料，優雅地關閉 Node
+                self.get_logger().info("--- Collection Finished. Shutting down. ---")
+                
+                # 提示：在系統引發 SystemExit 結束前，發送 False 通知外部 Node 停止蒐集資料
+                self._pub_data_collect_ctrl(False)
+                self.get_logger().info("Sent STOP signal to data collect node.")
+                
+                # [修改這行] 拋出退出例外，讓 main 函數攔截
+                raise SystemExit(0)
+
+        except Exception as e:
+            self.get_logger().error(f"Counterweight control Node timer step failed: {e}")
+            return
+
+        # 發布控制命令與 Phase Num 供 Data Logger 紀錄
+        self._pub_counterweight_pos(self._sacrum_target)
+        self._pub_leg_targets(self._lean_target, support_side, self._transition_alpha)
+        self._pub_phase_num()
 
     def _pub_counterweight_pos(self, sacrum_angle: float) -> None:
         msg = Float32MultiArray()
@@ -212,19 +250,17 @@ class CounterweightControlNode(Node):
         self._left_joint_target_publisher_.publish(left_msg)
         self._right_joint_target_publisher_.publish(right_msg)
 
-    def _support_side_callback(self, msg: String) -> None:
-        if msg.data != self._support_side:
-            self.get_logger().info(
-                f"Switching support side from {self._support_side} to {msg.data}.")
-            if msg.data in ("left", "right", "mid"):
-                self._support_side = msg.data
-                self._phase = 1
-                self._transition_alpha = 0.0
-                self._stable_count = 0
-                self._sacrum_target = 0.0
-            else:
-                self.get_logger().error(
-                    f"Invalid support side: {msg.data}. Keeping previous: {self._support_side}.")
+    def _pub_data_collect_ctrl(self, enable: bool) -> None:
+        """
+        Publishes a boolean command to start or stop the data collection node.
+
+        Args:
+            enable: True to start data collection, False to stop.
+        """
+        msg = Bool()
+        msg.data = enable
+        self._data_collect_ctrl_publisher_.publish(msg)
+
 
     def _com_callback(self, msg: Float32MultiArray) -> None:
         data = np.asarray(msg.data, dtype=np.float32)
@@ -282,59 +318,6 @@ class CounterweightControlNode(Node):
             q_W_foot)
         xFOOT_W = R_W_FOOT[:, 0]
         return LinearAlgebraUtils.normalize_vec(xFOOT_W)
-
-    def _timer_callback(self) -> None:
-        if self._support_side not in VALID_SUPPORT_SIDES:
-            self.get_logger().warn("Support side is invalid.")
-            return
-        support_side: str = self._support_side
-        if self._if_fall_down:
-            return
-        if self._q_W_baselink is None:
-            self.get_logger().warn("Waiting for /baselink/quat ...")
-            return
-
-        try:
-            vec_S_com_to_support = self._calc_vec_S_com_to_support(support_side)
-            vec_S_sacrum_proj_norm = self._calc_vec_S_sacrum_proj_norm()
-            err_signed = float(np.dot(vec_S_com_to_support[:2], vec_S_sacrum_proj_norm[:2]))
-            self.get_logger().info(f"err_signed: {err_signed*10000:.6f}")
-            if support_side not in ("left", "right"):
-                self._phase = 1
-                self._transition_alpha = 0.0
-                self._sacrum_target = 0.0
-                self._reset_phase3_anim()
-
-            if self._phase == 1:
-                self._sacrum_target = 0.0
-                self._lean_target = self._calc_lean_target(err_signed)
-                if abs(err_signed) < LEAN_MOVE_THRESHOLD:
-                    self._stable_count += 1
-                    if self._stable_count >= 10:
-                        self.get_logger().info("Entering transition phase.")
-                        self._phase = 2
-                else:
-                    self._stable_count = 0
-            
-            elif self._phase == 2:
-                self._transition_alpha += TRANSITION_ALPHA_INCREMENT
-                self._sacrum_target = self._calc_sacrum_target(err_signed)
-                if self._transition_alpha >= MAX_ALPHA:
-                    self._transition_alpha = MAX_ALPHA
-                    self.get_logger().info("Entering pelvic tilt phase.")
-                    self._phase = 3
-
-            elif self._phase == 3:
-                self._sacrum_target = self._calc_sacrum_target(err_signed)
-                self._update_swing_leg_animation(support_side)
-
-        except Exception as e:
-            self.get_logger().error(f"Counterweight control Node timer step failed: {e}")
-            return
-
-        self._pub_counterweight_pos(self._sacrum_target)
-        self._pub_leg_targets(self._lean_target, support_side, self._transition_alpha)
-        self._pub_phase_num()
 
     def _calc_lean_target(self, err_signed: float) -> float:
         if abs(err_signed) < LEAN_MOVE_THRESHOLD:
@@ -478,7 +461,9 @@ def main(args=None):
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
+    except SystemExit:
+        # 攔截由我們主動發起的 SystemExit，正常退出
+        pass
     finally:
         node.destroy_node()
         rclpy.shutdown()
-        sys.exit(0)

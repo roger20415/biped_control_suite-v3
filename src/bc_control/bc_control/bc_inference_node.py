@@ -39,41 +39,54 @@ ACTION_SCALES_PATH = os.path.join(SCRIPT_DIR, "action_scales.npy")
 
 
 class PhaseNumGenerator:
+    """
+    Generates the phase number for the neural network input.
+    Mimics the rule-based data collection logic where phase_num transitions 
+    from 0.0 to 0.25 smoothly during the weight shifting phase.
+    """
     def __init__(self, publish_period: float = 0.05):
         self.publish_period = publish_period
-        self.phase = 1
         
-        self.stable_count = 0
-        self.transition_alpha = 0.0
-        self.transition_alpha_inc = 0.02
+        # 中文標註：對應 rule-base 的 0: 準備期, 1: 轉移重心, 2: 轉移後維持期
+        self.phase = 0
         
-        self.phase3_tick = 0
-        self.phase3_ticks_per_stage = int(3.5 / self.publish_period)
+        self.state_ticks = 0
+        self.hold_ticks = int(0.5 / self.publish_period)  # 0.5秒 = 10 ticks
+        
+        # 中文標註：推論階段沒有實際的物理誤差可以計算 progress，因此改為用步進值隨時間模擬重心轉移進度
+        self.progress = 0.0
+        self.progress_inc = 0.02  # 假設重心轉移需要 50 ticks (2.5秒) 才能完成 100% (1.0)(實測真的是 50 個 ticks)
         
     def step(self) -> float:
-        if self.phase == 1:
-            self.stable_count += 1
-            if self.stable_count >= 10:
-                self.phase = 2
-                self.stable_count = 0
-        elif self.phase == 2:
-            self.transition_alpha += self.transition_alpha_inc
-            if self.transition_alpha >= 1.0:
-                self.phase = 3
-                self.transition_alpha = 0.0
-        elif self.phase == 3:
-            self.phase3_tick += 1
-            if self.phase3_tick >= self.phase3_ticks_per_stage * 4:
-                self.phase3_tick = 0
-
-        if self.phase == 1:
-            return 0.0 / 6.0
-        elif self.phase == 2:
-            return 1.0 / 6.0
-        elif self.phase == 3:
-            continuous_stage = self.phase3_tick // self.phase3_ticks_per_stage
-            return (2.0 + continuous_stage) / 6.0
+        """
+        Steps the state machine and returns the current phase number.
         
+        Returns:
+            float: The generated phase number (0.0 to 0.25).
+        """
+        print(f"Phase Generator State: phase={self.phase}, state_ticks={self.state_ticks}, progress={self.progress:.3f}")
+        if self.phase == 0:
+            # 中文標註：[Phase 0] 雙腳直立準備期 (等待 0.5 秒) -> 對應輸出 0.0
+            self.state_ticks += 1
+            if self.state_ticks >= self.hold_ticks:
+                self.phase = 1
+                self.state_ticks = 0
+            return 0.0
+            
+        elif self.phase == 1:
+            # 中文標註：[Phase 1] 模擬重心轉移進度 (0.0 -> 1.0)，並按比例映射到 phase_num 的 0.0 -> 0.25
+            self.progress += self.progress_inc
+            if self.progress >= 1.0:
+                self.progress = 1.0
+                self.phase = 2
+                self.state_ticks = 0
+            return 0.25 * self.progress
+            
+        elif self.phase == 2:
+            # 中文標註：[Phase 2] 轉移完成後維持期，穩定輸出 0.25 (即神經網路預期的最終重心狀態)
+            self.state_ticks += 1
+            return 0.25
+            
         return 0.0
 
 
@@ -255,6 +268,7 @@ class BcInferenceNode(Node):
         if not self._check_states_ready():
             return
 
+        # 中文標註：取得當下的模擬 phase_num
         current_phase_num = self._phase_generator.step()
 
         # 2. Get Normalized Sensor Data
@@ -381,7 +395,19 @@ class BcInferenceNode(Node):
                 f"Observation dimension mismatch! "
                 f"Received {raw_obs.shape[0]}, expected {self._obs_mean.shape[0]} (from cfg)."
             )
-        normalized_obs = (raw_obs - self._obs_mean) / self._obs_std
+            
+        normalized_obs = np.zeros_like(raw_obs, dtype=np.float32)
+        
+        # 中文標註：必須與 preprocess_data.py 保持完全相同的 Euler 角正規化邏輯
+        OBS_EULAR_INDICES = [1, 2, 3]
+        
+        diff_euler = raw_obs[OBS_EULAR_INDICES] - self._obs_mean[OBS_EULAR_INDICES]
+        normalized_euler = np.arctan2(np.sin(diff_euler), np.cos(diff_euler)) / self._obs_std[OBS_EULAR_INDICES]
+        normalized_obs[OBS_EULAR_INDICES] = normalized_euler
+        
+        # 中文標註：處理其餘線性數值
+        linear_indices = [i for i in range(raw_obs.shape[0]) if i not in OBS_EULAR_INDICES]
+        normalized_obs[linear_indices] = (raw_obs[linear_indices] - self._obs_mean[linear_indices]) / self._obs_std[linear_indices]
         
         return normalized_obs.astype(np.float32)
 
