@@ -204,14 +204,17 @@ class CounterweightControlNode(Node):
         self._pub_phase_num()
 
     def _pub_counterweight_pos(self, sacrum_angle: float) -> None:
+
         msg = Float32MultiArray()
-        msg.data = [0.0, float(sacrum_angle)] 
+        noisy_sacrum = sacrum_angle + np.random.normal(loc=0.0, scale=Config.SACRUM_MAX_NOISE_RAD)
+        msg.data = [0.0, float(noisy_sacrum)]
         self._counterweight_publisher_.publish(msg)
 
     def _pub_leg_targets(self, lean_angle: float, support_side: str, alpha: float) -> None:
         """
         Calculates and publishes the joint targets for both legs.
-        Applies swing leg animation offsets to the non-supporting leg during Phase 3.
+        Applies swing leg animation offsets to the non-supporting leg during Phase 3,
+        and injects zero-mean Gaussian noise to all joints for robust ML data collection.
         """
         left_msg = Float32MultiArray()
         right_msg = Float32MultiArray()
@@ -230,6 +233,7 @@ class CounterweightControlNode(Node):
             right_hip = lean_angle * (1.0 - alpha)
             right_foot = lean_angle * (1.0 - alpha)
 
+        # 這裡的順序為 [hip, thigh, calf, ankle, foot]
         l_data = [left_hip, 0.0, 0.0, 0.0, left_foot]
         r_data = [right_hip, 0.0, 0.0, 0.0, right_foot]
 
@@ -244,8 +248,25 @@ class CounterweightControlNode(Node):
             r_data[2] += self._swing_offsets[2]  
             r_data[3] += self._swing_offsets[3]  
 
-        left_msg.data = l_data
-        right_msg.data = r_data
+        # 建立與關節對應的噪聲標準差陣列
+        noise_stds = [
+            Config.HIP_MAX_NOISE_RAD,
+            Config.THIGH_MAX_NOISE_RAD,
+            Config.CALF_MAX_NOISE_RAD,
+            Config.ANKLE_MAX_NOISE_RAD,
+            Config.FOOT_MAX_NOISE_RAD
+        ]
+
+        # 針對左右腳的每個關節目標角度，疊加獨立的高斯噪聲
+        l_data_noisy = [
+            float(val + np.random.normal(loc=0.0, scale=std)) for val, std in zip(l_data, noise_stds)
+        ]
+        r_data_noisy = [
+            float(val + np.random.normal(loc=0.0, scale=std)) for val, std in zip(r_data, noise_stds)
+        ]
+
+        left_msg.data = l_data_noisy
+        right_msg.data = r_data_noisy
         
         self._left_joint_target_publisher_.publish(left_msg)
         self._right_joint_target_publisher_.publish(right_msg)
