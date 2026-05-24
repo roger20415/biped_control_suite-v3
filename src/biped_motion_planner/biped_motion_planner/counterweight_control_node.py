@@ -17,7 +17,7 @@ _COM_KEYS: tuple[str, ...] = (
 )
 # in meters
 ERR_MAX_ERR: float = 45/10000  # error_signed value max limit
-LEAN_MOVE_THRESHOLD: float = 0.1/10000
+LEAN_MOVE_THRESHOLD: float = 2/10000
 SACRUM_MOVE_THRESHOLD: float = 0.1/10000
 LEAN_MIN_STEP: float = float(np.deg2rad(0.04))
 LEAN_MAX_STEP: float = float(np.deg2rad(1.0))
@@ -55,6 +55,7 @@ class CounterweightControlNode(Node):
         self._initial_err_signed: Optional[float] = None
         self._phase_num_val: float = 0.0
         self._stable_count: int = 0
+        self._invalid_support_count: int = 0
         
         # 為了保持發布格式正確，保留舊有變數
         self._sacrum_target: float = 0.0
@@ -104,13 +105,13 @@ class CounterweightControlNode(Node):
             self.get_logger().info(f"Switching support side from {self._support_side} to {msg.data}.")
             if msg.data in ("left", "right", "mid"):
                 self._support_side = msg.data
-                # 當支援腳改變，重置狀態機回到 Phase 0
                 self._phase = 0
                 self._state_ticks = 0
                 self._initial_err_signed = None
                 self._phase_num_val = 0.0
                 self._lean_target = 0.0
                 self._stable_count = 0
+                self._invalid_support_count = 0
                 
                 # 提示：在動作最一開始（支援腳切換、狀態重置時），發送 True 讓外部 Node 開始蒐集資料
                 self._pub_data_collect_ctrl(True)
@@ -120,8 +121,23 @@ class CounterweightControlNode(Node):
     
     def _timer_callback(self) -> None:
         if self._support_side not in VALID_SUPPORT_SIDES:
-            self.get_logger().warn("Support side is invalid.")
+            self._invalid_support_count += 1
+            self.get_logger().warn(
+                f"Support side is invalid. Count: {self._invalid_support_count}/30"
+            )
+            
+            if self._invalid_support_count >= 30:
+                self.get_logger().info("--- Invalid support side timeout (30 ticks). Shutting down. ---")
+                
+                self._pub_data_collect_ctrl(False)
+                self.get_logger().info("Sent STOP signal to data collect node.")
+                
+                raise SystemExit(0)
+                
             return
+
+        self._invalid_support_count = 0
+
         support_side: str = self._support_side
         
         if self._if_fall_down:
@@ -166,6 +182,7 @@ class CounterweightControlNode(Node):
                 
                 # 檢查是否完成重心轉移
                 if abs(err_signed) < LEAN_MOVE_THRESHOLD:
+                    self.get_logger().info(f"err_signed {err_signed} within threshold")
                     self._stable_count += 1
                     if self._stable_count >= 5: # 連續穩定 5 ticks (0.25秒) 才算真正完成
                         self.get_logger().info(f"[DATA COLLECTION] Parallelogram complete. phase_num reached {self._phase_num_val:.3f}. Entering post-hold.")

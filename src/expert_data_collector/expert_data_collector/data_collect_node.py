@@ -8,7 +8,6 @@ from collections import deque
 from geometry_msgs.msg import Quaternion, Twist, Vector3
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
-# 提示：引入 Bool 以接收啟用/停用訊號
 from std_msgs.msg import Float32MultiArray, Float32, Bool
 from sensor_msgs.msg import JointState
 

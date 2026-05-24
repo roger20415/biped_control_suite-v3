@@ -18,6 +18,7 @@ run_container() {
     echo "Running the Docker container with the image $IMAGE_PATH..."
     docker run -it --rm --gpus all \
         -v "$(pwd)/src:/workspaces/src" \
+        -v "$(pwd)/collect_data.sh:/workspaces/collect_data.sh" \
         --network $NETWORK_NAME \
         --ipc host \
         --env-file $ENV_FILE \
