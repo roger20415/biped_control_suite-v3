@@ -34,9 +34,22 @@ SWING_LIFT_KNEE_MAG: float = float(np.deg2rad(50.0))        # Calf bend magnitud
 SWING_LIFT_ANKLE_PITCH_MAG: float = float(np.deg2rad(-25.0)) # Ankle compensation magnitude
 SWING_ABDUCT_HIP_ROLL_MAG: float = float(np.deg2rad(35.0))  # Hip roll abduction magnitude
 PHASE3_TICKS_PER_STAGE: int = int(2.0 / PUBLISH_PERIOD)     # 10 ticks (0.5s) per stage
+HOLD_TICKS: int = int(0.5 / PUBLISH_PERIOD)  # 0.5s = 10 ticks (20Hz)
+NOISE_TIERS = {
+    "nano": {
+        "sacrum": 0.0001, "hip": 0.0003, "thigh": 0.0001,
+        "calf": 0.0001, "ankle": 0.0001, "foot": 0.0003
+    },
+    "small": {
+        "sacrum": 0.0008, "hip": 0.0025, "thigh": 0.0008,
+        "calf": 0.0008, "ankle": 0.0008, "foot": 0.0025
+    },
+    "mid": {
+        "sacrum": 0.015, "hip": 0.004, "thigh": 0.0015,
+        "calf": 0.0015, "ankle": 0.0015, "foot": 0.004
+    }
+}
 
-# 定義收集資料的時間常數
-HOLD_TICKS: int = int(0.5 / PUBLISH_PERIOD)  # 0.5秒 = 10 ticks (20Hz)
 
 class CounterweightControlNode(Node):
     def __init__(self):
@@ -91,6 +104,18 @@ class CounterweightControlNode(Node):
         self._data_collect_ctrl_publisher_ = self.create_publisher(Bool, '/data_collection/enable', 10)
 
         self._timer = self.create_timer(PUBLISH_PERIOD, self._timer_callback)
+
+    def _sample_joint_noise(self, joint_name: str) -> float:
+        dice = np.random.rand()
+        
+        if dice < 0.20:
+            std = NOISE_TIERS["nano"][joint_name]
+        elif dice < 0.85:
+            std = NOISE_TIERS["small"][joint_name]
+        else:
+            std = NOISE_TIERS["mid"][joint_name]
+            
+        return float(np.random.normal(loc=0.0, scale=std))
 
     def _pub_phase_num(self) -> None:
         msg = Float32()
@@ -220,9 +245,11 @@ class CounterweightControlNode(Node):
         self._pub_phase_num()
 
     def _pub_counterweight_pos(self, sacrum_angle: float) -> None:
-
+        """
+        Publishes the counterweight target with an independently sampled noise.
+        """
         msg = Float32MultiArray()
-        noisy_sacrum = sacrum_angle + np.random.normal(loc=0.0, scale=Config.SACRUM_MAX_NOISE_RAD)
+        noisy_sacrum = sacrum_angle + self._sample_joint_noise("sacrum")
         msg.data = [0.0, float(noisy_sacrum)]
         self._counterweight_publisher_.publish(msg)
 
@@ -264,26 +291,17 @@ class CounterweightControlNode(Node):
             r_data[2] += self._swing_offsets[2]  
             r_data[3] += self._swing_offsets[3]  
 
-        # 建立與關節對應的噪聲標準差陣列
-        noise_stds = [
-            Config.HIP_MAX_NOISE_RAD,
-            Config.THIGH_MAX_NOISE_RAD,
-            Config.CALF_MAX_NOISE_RAD,
-            Config.ANKLE_MAX_NOISE_RAD,
-            Config.FOOT_MAX_NOISE_RAD
-        ]
+        joint_names = ["hip", "thigh", "calf", "ankle", "foot"]
 
-        # 針對左右腳的每個關節目標角度，疊加獨立的高斯噪聲
         l_data_noisy = [
-            float(val + np.random.normal(loc=0.0, scale=std)) for val, std in zip(l_data, noise_stds)
+            float(val + self._sample_joint_noise(name)) for val, name in zip(l_data, joint_names)
         ]
         r_data_noisy = [
-            float(val + np.random.normal(loc=0.0, scale=std)) for val, std in zip(r_data, noise_stds)
+            float(val + self._sample_joint_noise(name)) for val, name in zip(r_data, joint_names)
         ]
 
         left_msg.data = l_data_noisy
         right_msg.data = r_data_noisy
-        
         self._left_joint_target_publisher_.publish(left_msg)
         self._right_joint_target_publisher_.publish(right_msg)
 
