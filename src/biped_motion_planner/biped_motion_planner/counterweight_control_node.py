@@ -182,7 +182,6 @@ class CounterweightControlNode(Node):
                 
                 # 檢查是否完成重心轉移
                 if abs(err_signed) < LEAN_MOVE_THRESHOLD:
-                    self.get_logger().info(f"err_signed {err_signed} within threshold")
                     self._stable_count += 1
                     if self._stable_count >= 5: # 連續穩定 5 ticks (0.25秒) 才算真正完成
                         self.get_logger().info(f"[DATA COLLECTION] Parallelogram complete. phase_num reached {self._phase_num_val:.3f}. Entering post-hold.")

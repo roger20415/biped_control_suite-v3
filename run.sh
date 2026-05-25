@@ -17,15 +17,16 @@ create_network() {
 run_container() {
     echo "Running the Docker container with the image $IMAGE_PATH..."
     docker run -it --rm --gpus all \
+        --name pros_rl \
         -v "$(pwd)/src:/workspaces/src" \
         -v "$(pwd)/collect_data.sh:/workspaces/collect_data.sh" \
+        -v "/isaac/shared_shutdown_signal:/shared_shutdown_signal" \
         --network $NETWORK_NAME \
         --ipc host \
         --env-file $ENV_FILE \
         $IMAGE_PATH:$IMAGE_TAG \
         /bin/bash -c "export FASTRTPS_DEFAULT_PROFILES_FILE=/humble_ws/fastdds.xml && exec bash" \
     || { echo "Failed to run Docker container"; exit 1; }
-
 }
 
 main() {

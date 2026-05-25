@@ -26,7 +26,6 @@ class DataCollectNode(Node):
     def __init__(self):
         super().__init__('data_collect_node')
         
-        # 新增：控制是否允許蒐集資料的旗標，預設為 False
         self._is_collection_enabled: bool = False
 
         # for states
@@ -133,7 +132,6 @@ class DataCollectNode(Node):
 
         self._timer = self.create_timer(TIMER_PERIOD_SEC, self.on_timer)
 
-    # 新增：處理啟用/停用訊號的 callback
     def _collection_enable_callback(self, msg: Bool) -> None:
         """
         Callback to enable or disable data collection based on the received boolean flag.
@@ -144,7 +142,6 @@ class DataCollectNode(Node):
             print("Data collection ENABLED.")
         else:
             print("Data collection DISABLED. Pausing collection.")
-            # 當收到停用訊號時，將 episode 標記為 False，確保下次啟動時會重新初始化 history
             self._is_in_episode = False
 
     def _baselink_translate_callback(self, msg: Vector3) -> None:
@@ -186,7 +183,6 @@ class DataCollectNode(Node):
         self._phase_num = msg.data
 
     def on_timer(self) -> None:
-        # 新增：如果尚未啟用收集，則直接跳出，暫停所有收集動作
         if not self._is_collection_enabled:
             return
 
